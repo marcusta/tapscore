@@ -48,6 +48,9 @@ export interface Database {
     v_player_round_stats_v3: PlayerRoundStatsV3View;
     /** VIEW (migration 046) — cross-tab career totals. THE summary read target. */
     v_player_stat_totals_v3: PlayerStatTotalsV3View;
+    /** VIEW (migration 064) — the long-format per-metre make curve. */
+    v_player_first_putt_m_curve: PlayerFirstPuttMCurveView;
+    v_player_sg_gir_arrival_m: PlayerSgGirArrivalMView;
     setup_correction_events: SetupCorrectionEventsTable;
     allowance_override_events: AllowanceOverrideEventsTable;
     ruling_events: RulingEventsTable;
@@ -270,6 +273,7 @@ export type StatKey =
     | 'short_game_difficulty'
     | 'short_game_strokes'
     | 'first_putt'
+    | 'first_putt_m'
     | 'putts'
     | 'penalties'
     | 'penalty_source';
@@ -277,8 +281,14 @@ export type StatKey =
 export type TeeResult = 'fairway' | 'in_play' | 'trouble';
 /** Which side the drive finished, looking down the hole (migration 055). */
 export type TeeMissDir = 'left' | 'right';
-/** Which way the approach missed, seen from where it was played (migration 055). */
-export type GreenMissDir = 'long' | 'short' | 'left' | 'right';
+/**
+ * How the green question resolved when the green was not hit in regulation
+ * (migration 055). Four MISS directions, seen from where the approach was
+ * played, plus `hit_late` (migration 064): the first green attempt HIT the
+ * green, but over regulation — no direction, and no chip, so the short-game
+ * keys are contradicted alongside it.
+ */
+export type GreenMissDir = 'long' | 'short' | 'left' | 'right' | 'hit_late';
 /** The shot a hole's penalty strokes came off (migration 055). */
 export type PenaltySource = 'tee' | 'approach' | 'short_or_green';
 export type FirstPuttBucket =
@@ -290,6 +300,33 @@ export type FirstPuttBucket =
 /** Values captured before migration 044; readable but no longer accepted for new events. */
 export type LegacyFirstPuttBucket = 'inside_2m' | '2_to_6m' | 'over_6m';
 export type StoredFirstPuttBucket = FirstPuttBucket | LegacyFirstPuttBucket;
+/**
+ * The closed metre vocabulary of `first_putt_m` as SENT — the optional exact
+ * refinement of a fine `first_putt` bucket (migration 064). Sent and logged
+ * as TEXT exactly ('20+' is stored as '20'); the projection types it REAL.
+ * Which values belong to which bucket is the client model's coherence rule
+ * (`stat-prompts.ts` / `StatPrompts.swift`), not a server CHECK.
+ */
+export type FirstPuttMetres =
+    | '0.3'
+    | '0.5'
+    | '0.8'
+    | '1'
+    | '1.5'
+    | '2'
+    | '2.5'
+    | '3'
+    | '3.5'
+    | '4'
+    | '5'
+    | '6'
+    | '7'
+    | '8'
+    | '10'
+    | '12'
+    | '14'
+    | '16'
+    | '20';
 /**
  * All three are CURRENT and writable — `bunker` is a sibling of `hard`
  * (migration 055), not a replacement for it. Contrast `LegacyFirstPuttBucket`,
@@ -339,8 +376,9 @@ export interface StatEventsTable {
     seq: number;
     key: StatKey;
     /**
-     * One TEXT column serving eleven keys: enum text, `'0'`/`'1'` for the two
+     * One TEXT column serving twelve keys: enum text, `'0'`/`'1'` for the two
      * booleans, `'0'`..`'3'` for putts, `'1'`..`'5'` for short-game strokes,
+     * the closed metre literals for `first_putt_m`,
      * decimal digits for penalties. Pinned
      * per key by a CHECK constraint; typed into real columns by the projection.
      * NULL = cleared.
@@ -371,6 +409,14 @@ export interface PlayerHoleStatsTable {
     /** Direction of a missed green (migration 055). */
     green_miss_dir: GreenMissDir | null;
     first_putt: StoredFirstPuttBucket | null;
+    /**
+     * Exact first-putt metres (migration 064) — REAL, one of the nineteen
+     * `FirstPuttMetres` values parsed as numbers (CHECK-pinned). REAL and not
+     * TEXT because the views SUM and AVERAGE it, unlike every other closed
+     * vocabulary; the value set round-trips exactly. NULL on every pre-064
+     * hole and wherever the player stopped at the bucket.
+     */
+    first_putt_m: number | null;
     /** 0..3, where 3 means "3 or more". */
     putts: number | null;
     short_game_difficulty: ShortGameDifficulty | null;
@@ -380,10 +426,14 @@ export interface PlayerHoleStatsTable {
     /** 0/1. */
     recovery_ok: number | null;
     /**
-     * 1..5 short-game strokes on a missed green (migration 054; written by
-     * capture from migration 055). The aggregates read it through
-     * `COALESCE(…, 1)`, so a hole without a count models exactly one chip —
-     * the counter is skippable and an untouched stepper emits nothing.
+     * 1..5 short-game strokes (migration 054; written by capture from
+     * migration 055; recordable on GIR holes from 064). The MISSED-GREEN
+     * aggregates read it through `COALESCE(…, 1)`, so an uncounted missed
+     * green models exactly one chip — the counter is skippable and an
+     * untouched stepper emits nothing. That default applies ONLY where a chip
+     * is certain: on `gir = 1` holes and on `green_miss_dir = 'hit_late'`
+     * holes an unrecorded count means NO chip (migration 064), and the views
+     * never COALESCE it there.
      */
     short_game_strokes: number | null;
 }
@@ -746,6 +796,44 @@ export interface PlayerStatMeasureColumns {
     dbl_penalty_approach: number;
     dbl_penalty_short: number;
     dbl_penalty_unknown: number;
+
+    /**
+     * EXACT METRES + THE FIFTH GREEN ANSWER (migration 064).
+     *
+     * The metre pairs are the proximity inputs: `first_putt_m_sum_gir` over
+     * `first_putt_m_recorded_gir` is average first-putt distance on greens
+     * hit; the unconditioned pair is its all-holes twin. Both sums are REAL.
+     *
+     * `meters_made_sum` over `meters_made_holes` is metres of putts holed —
+     * one-putt holes with a metre recorded, plus 0.5 m for each metre-less
+     * one-putt from `inside_1m` (the bucket midpoint, priced once in the
+     * view). `one_putts_unmeasured` is the coverage column beside it: one-putt
+     * holes in a fine bucket other than inside_1m with no metre, which the
+     * sum cannot see — surfaced, never excluded.
+     *
+     * `green_hit_late` counts `green_miss_dir = 'hit_late'` holes; it is
+     * OUTSIDE `green_miss_recorded` (the four directions still partition
+     * that), and "green attempts hit" is composed client-side as
+     * `gir_hits + green_hit_late`.
+     *
+     * The `chip_gir_*` quartet is short game on greens hit in regulation
+     * (par-5 greenside in two, chip on for GIR): holes with a recorded
+     * short-game answer — NO COALESCE default on a hit green — and their
+     * up-and-down outcome (`putts <= 1`, putt count required). The par-5
+     * twins feed up-and-down for birdie.
+     */
+    first_putt_m_recorded: number;
+    first_putt_m_sum: number;
+    first_putt_m_recorded_gir: number;
+    first_putt_m_sum_gir: number;
+    meters_made_sum: number;
+    meters_made_holes: number;
+    one_putts_unmeasured: number;
+    green_hit_late: number;
+    chip_gir_holes: number;
+    chip_gir_one_putt: number;
+    chip_gir_par5: number;
+    chip_gir_par5_one_putt: number;
 }
 
 /**
@@ -860,6 +948,40 @@ export interface PlayerRoundStatsV3View
 export interface PlayerStatTotalsV3View
     extends PlayerStatTotalsV2View,
         ConditionedCrossTabMeasureColumns {}
+
+/**
+ * VIEW (migration 064) — the per-metre make curve, the one LONG-format view
+ * in the stats stack: one row per (player, round, metre value) with a metre
+ * recorded and a coherent putt count. Counts and sums only, so a client-side
+ * window over rounds equals a server-side total; `one_putts / attempts` is
+ * make-% and `putts_total / attempts` is average putts from the distance.
+ */
+export interface PlayerFirstPuttMCurveView {
+    player_id: string;
+    round_id: string;
+    /** One of the nineteen `FirstPuttMetres` values, as REAL. */
+    first_putt_m: number;
+    /** Holes at this metre with a putt count — the make-% denominator. */
+    attempts: number;
+    one_putts: number;
+    putts_total: number;
+}
+
+/**
+ * VIEW (migration 064) — the attribution cohort's exact-metre arrivals, long
+ * format: one row per (player, round, metre value) counting attributable
+ * greens-hit (GIR or hit_late) that arrived at exactly that metre. Every hole
+ * counted here is already inside its bucket's `att_gir_first_putt_*` column;
+ * the client uses the row to refine the bucket's price, never to add a hole.
+ */
+export interface PlayerSgGirArrivalMView {
+    player_id: string;
+    round_id: string;
+    /** One of the nineteen `FirstPuttMetres` values, as REAL. */
+    first_putt_m: number;
+    /** Attributable greens-hit whose first putt recorded exactly this metre. */
+    holes: number;
+}
 
 export interface RoleGrantsTable {
     id: string;

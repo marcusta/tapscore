@@ -36,6 +36,7 @@ function cell(
         teeResult: null,
         gir: null,
         firstPutt: null,
+        firstPuttM: null,
         putts: null,
         shortGameDifficulty: null,
         penalties: null,

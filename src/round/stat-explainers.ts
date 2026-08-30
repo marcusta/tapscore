@@ -28,13 +28,15 @@ export const STAT_EXPLAINERS: Record<StatEventKey, string> = {
         'Did the very next shot get you back to a normal position: fairway, green, or a clear approach? Say yes even if the hole still ended badly. This is about the recovery shot, not the score.',
     gir: 'Hit means the ball was on the putting surface with at least two shots left for par: the first shot on a par 3, the second on a par 4, the third on a par 5. The fringe is a miss.',
     green_miss_dir:
-        'Which way you missed, seen from where you played the approach. Long is past the flag, short is in front of it. Left and right are exactly that.',
+        'Which way you missed, seen from where you played the approach. Long is past the flag, short is in front of it. Left and right are exactly that. On green means the ball reached the green, just one shot too late to count as hit.',
     short_game_difficulty:
         'Standard is a clean lie with green to work with. Hard is anything that takes the shot away from you: long grass, short-sided, downhill, an awkward stance. Bunker is sand, whatever the lie.',
     short_game_strokes:
         'How many shots it took to get from off the green onto it. One is the normal answer and is already filled in — only change it if you needed more.',
     first_putt:
         'How far the first putt was, in metres. If you holed out from off the green there was no first putt, so leave this alone and set putts to 0.',
+    first_putt_m:
+        'The exact distance, if you want it. Pick the closest number inside the range you chose above. Optional — the range alone is a full answer.',
     putts: 'Putts taken on the green, counting the one that went in. 0 means you were never on the green with a putter.',
     penalties:
         'Penalty strokes added on this hole: out of bounds, a lost ball, an unplayable lie, water. Count strokes, not incidents.',

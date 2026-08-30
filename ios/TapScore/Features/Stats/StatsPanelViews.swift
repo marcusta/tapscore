@@ -44,6 +44,13 @@ enum StatsBlock: Identifiable {
     /// reading, and what the distance cost against the selected cohort.
     case rung(
         id: String, title: String, made: Double?, baseline: Double, value: String?, cost: String)
+    /// One distance of the make curve: the holed share as a bar, and the
+    /// average putts from that distance in the second value column.
+    ///
+    /// A rung in shape, a different row in substance: the second column is an
+    /// average, not a cost against a cohort, and the title carries the row's own
+    /// putt count so a 0% from two attempts does not read like a 0% from forty.
+    case curve(id: String, title: String, share: Double?, value: String?, avg: String)
     /// Right-aligned column headers over the fixed value columns below them.
     case columns(id: String, cells: [String])
     /// Title and value. A nil value prints "Not recorded" — a figure row has the
@@ -54,7 +61,7 @@ enum StatsBlock: Identifiable {
         switch self {
         case .subhead(let id, _), .split(let id, _, _), .fan(let id, _, _),
             .compass(let id, _, _, _), .bar(let id, _, _, _), .rung(let id, _, _, _, _, _),
-            .columns(let id, _), .figure(let id, _, _):
+            .curve(let id, _, _, _, _), .columns(let id, _), .figure(let id, _, _):
             return id
         }
     }
@@ -68,6 +75,7 @@ enum StatsBlock: Identifiable {
         case .compass: return "compass"
         case .bar: return "bar"
         case .rung: return "rung"
+        case .curve: return "curve"
         case .columns: return "columns"
         case .figure: return "figure"
         }
@@ -79,7 +87,8 @@ enum StatsBlock: Identifiable {
     /// The value column's text, for a row that has one.
     var value: String? {
         switch self {
-        case .bar(_, _, _, let value), .rung(_, _, _, _, let value, _), .figure(_, _, let value):
+        case .bar(_, _, _, let value), .rung(_, _, _, _, let value, _),
+            .curve(_, _, _, let value, _), .figure(_, _, let value):
             return value
         default: return nil
         }
@@ -88,21 +97,26 @@ enum StatsBlock: Identifiable {
     /// The bar's length, for a row that draws one.
     var share: Double? {
         switch self {
-        case .bar(_, _, let share, _), .rung(_, _, let share, _, _, _): return share
+        case .bar(_, _, let share, _), .rung(_, _, let share, _, _, _),
+            .curve(_, _, let share, _, _):
+            return share
         default: return nil
         }
     }
 
-    /// The ladder's cost column.
+    /// The second value column: the ladder's cost, the curve's average putts.
     var cost: String? {
-        if case .rung(_, _, _, _, _, let cost) = self { return cost }
-        return nil
+        switch self {
+        case .rung(_, _, _, _, _, let cost): return cost
+        case .curve(_, _, _, _, let avg): return avg
+        default: return nil
+        }
     }
 
     var title: String? {
         switch self {
         case .bar(_, let title, _, _), .rung(_, let title, _, _, _, _),
-            .figure(_, let title, _):
+            .curve(_, let title, _, _, _), .figure(_, let title, _):
             return title
         case .subhead(_, let text): return text
         default: return nil
@@ -442,6 +456,10 @@ struct StatsPanelsView: View {
     /// strokes-gained cell.
     static let ladderColumns = ["Holed", "Cost"]
 
+    /// The make curve's two column headers. Same slots as the ladder's, a
+    /// different right-hand fact: putts from that distance, not strokes gained.
+    static let curveColumns = ["Holed", "Putts"]
+
     /// The open panel's contents, in reading order. Empty for an absent panel.
     static func blocks(_ id: StatsPanelID, _ model: StatsDashboardModel) -> [StatsBlock] {
         switch id {
@@ -565,6 +583,15 @@ struct StatsPanelsView: View {
 
     static func approachBlocks(_ panel: StatsApproachPanel) -> [StatsBlock] {
         var out: [StatsBlock] = []
+        // Ball-striking beside position, first, because it reframes every GIR
+        // figure under it. Gated on a hit-late answer existing: with none, the
+        // second row is the first row's number and the pair says nothing twice.
+        if panel.greenHitLate > 0 {
+            out.append(.subhead(id: "greenAttemptsHead", text: StatsCopy.greenAttemptsHead))
+            out.append(bar("girInRegulation", "In regulation", panel.gir))
+            out.append(
+                bar("greenAttemptsHit", "Including over regulation", panel.greenAttemptsHit))
+        }
         // Directly under the card's own GIR headline, and above every
         // breakdown: the compass says WHERE the misses went, which is the
         // question the breakdowns below then slice. Absent when no miss carries
@@ -669,8 +696,56 @@ struct StatsPanelsView: View {
 
     // MARK: Putting
 
+    /// A distance in metres: "3 m", "0.5 m". `count` drops a whole number's
+    /// decimal, which is what the refine vocabulary's mixed steps need.
+    static func metres(_ value: Double) -> String {
+        "\(StatsFormat.count(value)) m"
+    }
+
     static func puttingBlocks(_ panel: StatsPuttingPanel) -> [StatsBlock] {
         var out: [StatsBlock] = []
+        // The exact-metre pair leads the open card: proximity on GIR is the
+        // figure the owner asked for, and it is a DISTANCE, which nothing else
+        // on this screen is. The collapsed headline stays "putts per green hit"
+        // — that ruling is not reopened here.
+        let hasProximity = panel.proximityOnGir.d > 0
+        let hasMetersMade = panel.metersMadeHoles > 0
+        if hasProximity || hasMetersMade {
+            out.append(.subhead(id: "exactMetresHead", text: StatsCopy.exactMetresHead))
+            if hasProximity {
+                out.append(
+                    figure(
+                        "proximityOnGir", StatsCopy.proximityOnGirTitle,
+                        StatsFormat.average(panel.proximityOnGir, decimals: 1).map { "\($0) m" }))
+            }
+            if hasMetersMade {
+                out.append(
+                    figure("metersMade", StatsCopy.metersMadeTitle, metres(panel.metersMade)))
+            }
+        }
+        // One bar per metre actually faced. Sparse on purpose: a metre nobody
+        // putted from has no row, rather than a row at 0% that reads as a
+        // distance you always miss from.
+        if !panel.makeCurve.isEmpty {
+            out.append(.subhead(id: "makeCurveHead", text: StatsCopy.makeCurveHead))
+            // Each row states its own sample in the title — "3 m, 12 putts" —
+            // because a curve is read row against row, and a 0% over two putts
+            // is a different fact from a 0% over forty. The average putts get
+            // their own column beside the holed share, the way the ladder's
+            // second column works and the way the web twin renders it.
+            out.append(.columns(id: "curveCols", cells: curveColumns))
+            for row in panel.makeCurve {
+                out.append(
+                    .curve(
+                        id: "curve-\(row.id)",
+                        title:
+                            "\(metres(row.meters)), \(StatsFormat.quantity(row.made.d, .putts))",
+                        share: row.made.value,
+                        value: StatsFormat.rate(row.made),
+                        avg: StatsFormat.average(row.avgPutts, decimals: 2)
+                            ?? StatsCopy.noValue))
+            }
+        }
         // The raw distribution first: it is the context the make-% ladder below
         // is read against. Every bucket shares one denominator, so one check
         // gates the group.
@@ -757,6 +832,15 @@ struct StatsPanelsView: View {
         if cost.hasPrefix("+") { return "\(title), \(made), \(magnitude) strokes lost" }
         if cost.hasPrefix("\u{2212}") { return "\(title), \(made), \(magnitude) strokes gained" }
         return "\(title), \(made), level"
+    }
+
+    /// A curve row read out in words. Same shape as `rungReading`, without the
+    /// sign vocabulary: the second column is an average, and an average has no
+    /// gained-or-lost direction to say.
+    static func curveReading(title: String, value: String?, avg: String) -> String {
+        let made = value.map { "\($0) holed" } ?? StatsCopy.notRecorded
+        if avg == StatsCopy.noValue { return "\(title), \(made)" }
+        return "\(title), \(made), \(avg) putts on average"
     }
 
     // MARK: Short game
@@ -884,6 +968,18 @@ struct StatsPanelsView: View {
         }
         // The putting half of the failure split: when the chip DID get inside
         // 2 m, did the save follow? Reads beside the chipping half above it.
+        // The GIR chip cohort: a green REACHED with a short-game shot, which no
+        // scramble row above can see. Gated on the cohort, and the par-5 leg on
+        // its own — a window with no par-5 chip must not print "0%" for the
+        // birdie conversion it never had a chance at.
+        if panel.chipOnGir.d > 0 {
+            out.append(.subhead(id: "chipOnGirHead", text: StatsCopy.chipOnGirHead))
+            out.append(bar("chipOnGir", StatsCopy.chipOnGirTitle, panel.chipOnGir))
+            if panel.chipOnGirPar5Birdie.d > 0 {
+                out.append(
+                    bar("chipOnGirPar5", "Par 5, for birdie", panel.chipOnGirPar5Birdie))
+            }
+        }
         out.append(bar("savedInside2m", "Saved when inside 2 m", panel.savedInside2m.overall))
         out.append(bar("conversionInside2m", "Holed from inside 2 m", panel.conversionInside2m))
         // The legs, not the sum: the rows match the groups above them, and the
@@ -993,6 +1089,29 @@ struct StatsPanelsView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Self.rungReading(title: title, value: value, cost: cost))
+        case .curve(_, let title, let share, let value, let avg):
+            HStack(spacing: StatsBarMetrics.gap) {
+                Text(title)
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(TapColors.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                StatsMiniBar(share: share)
+                    .frame(width: StatsBarMetrics.track)
+                Text(value ?? StatsCopy.noValue)
+                    .font(TapFont.ui(size: 13.6, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(value == nil ? TapColors.textMuted : TapColors.text)
+                    .frame(width: StatsBarMetrics.value, alignment: .trailing)
+                Text(avg)
+                    .font(TapFont.ui(size: 11.0))
+                    .monospacedDigit()
+                    .foregroundStyle(TapColors.textMuted)
+                    .frame(width: StatsBarMetrics.cost, alignment: .trailing)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Self.curveReading(title: title, value: value, avg: avg))
         case .columns(_, let cells):
             HStack(spacing: StatsBarMetrics.gap) {
                 Spacer(minLength: 0)

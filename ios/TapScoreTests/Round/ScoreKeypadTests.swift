@@ -126,3 +126,146 @@ final class KeypadKeyTests: XCTestCase {
         XCTAssertEqual(KeypadKey.pickUp.caption(par: 4), "PICK UP")
     }
 }
+
+// ===========================================================================
+// THE CAPTURE CARD'S FOLD
+// ---------------------------------------------------------------------------
+// `StatStep.shortGameDisclosure` says whether the pair MAY fold; `ShortGameFold`
+// says which visits have already opened it, and lays out the card that follows.
+// Unfolding is remembered per (ball, hole) FOR THE ROUND: coming back to a card
+// that was opened finds it still open.
+// ===========================================================================
+
+final class ShortGameFoldTests: XCTestCase {
+    private let visit = VisitKey(playerId: "p-1", playHoleId: "ph-1")
+
+    private func prompts(_ keys: [StatEventKey]) -> [StatPrompt] {
+        keys.map {
+            StatPrompt(key: $0, label: StatVocabulary.label(for: $0), control: .segments([]))
+        }
+    }
+
+    /// `none` and `expanded` draw the rows whatever the view thinks.
+    func testOnlyCollapsedEverFolds() {
+        let fold = ShortGameFold()
+        XCTAssertFalse(fold.isFolded(disclosure: .none, visit: visit))
+        XCTAssertFalse(fold.isFolded(disclosure: .expanded, visit: visit))
+        XCTAssertTrue(fold.isFolded(disclosure: .collapsed, visit: visit))
+    }
+
+    func testOpeningUnfoldsThisVisit() {
+        var fold = ShortGameFold()
+        fold.open(visit)
+        XCTAssertFalse(fold.isFolded(disclosure: .collapsed, visit: visit))
+    }
+
+    /// Another player, and another hole, are other visits — those still fold.
+    func testAnotherVisitIsStillFolded() {
+        var fold = ShortGameFold()
+        fold.open(visit)
+        let nextPlayer = VisitKey(playerId: "p-2", playHoleId: "ph-1")
+        let nextHole = VisitKey(playerId: "p-1", playHoleId: "ph-2")
+        XCTAssertTrue(fold.isFolded(disclosure: .collapsed, visit: nextPlayer))
+        XCTAssertTrue(fold.isFolded(disclosure: .collapsed, visit: nextHole))
+    }
+
+    /// The memory is a SET, and it keeps every visit: leaving a card and coming
+    /// back to it finds it open, which is what the golfer left behind.
+    func testAnOpenedVisitStaysOpenAfterVisitingOthers() {
+        var fold = ShortGameFold()
+        fold.open(visit)
+        fold.open(VisitKey(playerId: "p-2", playHoleId: "ph-1"))
+        fold.open(VisitKey(playerId: "p-1", playHoleId: "ph-2"))
+        XCTAssertFalse(
+            fold.isFolded(disclosure: .collapsed, visit: visit),
+            "the first card was opened and nothing since has closed it")
+    }
+
+    /// A missing player or hole is still ONE key, not a key that matches everything.
+    func testAnEmptyVisitDoesNotCollideWithARealOne() {
+        XCTAssertNotEqual(VisitKey(playerId: nil, playHoleId: nil), visit)
+        var fold = ShortGameFold()
+        fold.open(VisitKey(playerId: nil, playHoleId: nil))
+        XCTAssertTrue(fold.isFolded(disclosure: .collapsed, visit: visit))
+    }
+
+    /// Both short-game rows fold, and nothing else does.
+    func testFoldedKeysAreThePair() {
+        XCTAssertEqual(ShortGameFold.foldedKeys, [.shortGameDifficulty, .shortGameStrokes])
+        XCTAssertFalse(ShortGameFold.foldedKeys.contains(.gir))
+        XCTAssertFalse(ShortGameFold.foldedKeys.contains(.greenMissDir))
+    }
+
+    // MARK: The card
+
+    /// Folded: ONE disclosure row REPLACES the pair, in the pair's own place —
+    /// not beside them, and not two of it.
+    func testTheDisclosureReplacesThePairInPlace() {
+        let card = ShortGameFold().visible(
+            prompts([.gir, .greenMissDir, .shortGameDifficulty, .shortGameStrokes, .putts]),
+            disclosure: .collapsed, visit: visit)
+        XCTAssertEqual(
+            card,
+            [
+                .prompt(prompts([.gir])[0]),
+                .prompt(prompts([.greenMissDir])[0]),
+                .shortGameDisclosure,
+                .prompt(prompts([.putts])[0]),
+            ])
+        XCTAssertEqual(card.filter { $0 == .shortGameDisclosure }.count, 1)
+    }
+
+    /// Unfolded, by any route: every prompt, no disclosure row.
+    func testAnUnfoldedCardIsJustThePrompts() {
+        let all = prompts([.gir, .shortGameDifficulty, .shortGameStrokes, .putts])
+        var fold = ShortGameFold()
+        for disclosure in [StatStep.ShortGameDisclosure.none, .expanded] {
+            XCTAssertEqual(
+                fold.visible(all, disclosure: disclosure, visit: visit), all.map { .prompt($0) })
+        }
+        fold.open(visit)
+        XCTAssertEqual(
+            fold.visible(all, disclosure: .collapsed, visit: visit), all.map { .prompt($0) })
+    }
+
+    /// Rows carry stable ids, so the `ForEach` does not re-identify the card
+    /// when the pair folds or unfolds.
+    func testRowIdentity() {
+        XCTAssertEqual(ShortGameFold.Row.shortGameDisclosure.id, "short-game-disclosure")
+        XCTAssertEqual(ShortGameFold.Row.prompt(prompts([.putts])[0]).id, "putts")
+    }
+}
+
+final class StatCaptureCopyTests: XCTestCase {
+    /// The trigger is a word, not a glyph (`docs/design-guidelines.md` §4).
+    func testTheDisclosureTriggerIsWorded() {
+        XCTAssertEqual(StatCaptureCopy.addShortGame, "Add short game")
+        XCTAssertFalse(StatCaptureCopy.addShortGame.contains("›"))
+    }
+
+    /// A prompt with a label speaks its label.
+    func testALabelledPromptKeepsItsLabel() {
+        let prompt = StatPrompt(key: .firstPutt, label: "First putt", control: .segments([]))
+        XCTAssertEqual(StatCaptureCopy.name(prompt), "First putt")
+    }
+
+    /// `first_putt_m` renders headless on purpose, so every non-visual surface
+    /// — VoiceOver, the explainer sheet — needs this name instead of "".
+    func testTheHeadlessMetreRowStillHasAName() {
+        let prompt = StatPrompt(
+            key: .firstPuttM, label: StatVocabulary.label(for: .firstPuttM),
+            control: .segments([]))
+        XCTAssertTrue(prompt.label.isEmpty, "the model ships it label-less")
+        XCTAssertEqual(StatCaptureCopy.name(prompt), "First putt, exact")
+    }
+
+    /// No prompt reaches the explainer sheet without a title.
+    func testEveryPromptHasANonEmptyName() {
+        for key in StatVocabulary.order {
+            let prompt = StatPrompt(
+                key: key, label: StatVocabulary.label(for: key), control: .segments([]))
+            XCTAssertFalse(
+                StatCaptureCopy.name(prompt).isEmpty, "\(key.rawValue) would be an untitled card")
+        }
+    }
+}

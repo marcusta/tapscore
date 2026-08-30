@@ -524,6 +524,13 @@ const RESERVED_TYPE_NAMES = new Set([
     'Dictionary', 'Double', 'Encodable', 'Equatable', 'Error', 'Hashable', 'Int', 'Never',
     'Optional', 'Protocol', 'Result', 'Self', 'Sendable', 'Set', 'String', 'Task', 'Type',
     'URL', 'Void', 'JSONValue', 'TriState', 'APIEndpoint', 'EmptyInput', 'HTTPMethod',
+    // Hand-written app types the generated module would otherwise redeclare.
+    // `FirstPuttCurvePoint` is `StatMeasuresMath`'s FOLDED point (metre,
+    // attempts, one-putts, avgPutts); the server interface of the same name is
+    // the UNFOLDED wire row, and Swift has one module. Reserving it mints
+    // `FirstPuttCurvePointModel` for the wire shape, which the transport maps
+    // to the domain's `FirstPuttCurveRow`.
+    'FirstPuttCurvePoint',
 ]);
 
 function escapeIdent(name: string): string {
@@ -580,7 +587,7 @@ function irKey(ir: TypeIR): string {
     }
 }
 
-type Optionality = 'plain' | 'optional' | 'nullable' | 'tristate';
+type Optionality = 'plain' | 'plainArray' | 'optional' | 'nullable' | 'tristate';
 
 interface SwiftField {
     tsName: string;
@@ -804,6 +811,37 @@ function push(name: string, text: string): void {
 //   T? (TS `?:`)  → T?  with encodeIfPresent — absent really is absent.
 //   ?: null | T   → TriState<T> — absent, null and a value are three distinct
 //                   wire states and the server distinguishes all three.
+//   T[]           → [T], decoded strictly like any other required field —
+//                   UNLESS the field is declared in `TOLERANT_ARRAY_FIELDS`
+//                   below, in which case a missing key reads as the empty list.
+//                   Encoding is unchanged either way: we always WRITE the key.
+
+/**
+ * Required arrays whose ABSENCE is allowed to read as "empty".
+ *
+ * The mechanism is general — any `Type.field` naming a required array may be
+ * listed — but the opt-in is deliberate, and blanket tolerance is not. A
+ * required array added to a large response after a binary shipped would
+ * otherwise take every other field on that response down with it, which is the
+ * deploy window this exists for: a new client against an older server degrades
+ * to "nothing here" rather than "the server sent a shape this build does not
+ * understand".
+ *
+ * The reason it is NOT the default: elsewhere a missing required array is how
+ * the app finds out the body is not the shape it asked for, and it acts on
+ * that. `AuthNativeCredentialsOutput.providers` is the case in hand — an
+ * undecodable body must land on "I do not know which credentials this player
+ * has", never on "this player has none", and blanket tolerance turns the first
+ * into the second silently.
+ *
+ * Each entry names the deploy it covers.
+ */
+const TOLERANT_ARRAY_FIELDS = new Set([
+    // Migration 064: exact first-putt metres. A build with the stats screens
+    // against a server without the column prices putting from buckets, which is
+    // what every earlier build did.
+    'PlayerRoundStats.girArrivalMetres',
+]);
 
 function splitNullability(ir: TypeIR): { base: TypeIR; hasNull: boolean } {
     if (ir.kind !== 'union') return { base: ir, hasNull: false };
@@ -820,7 +858,7 @@ function constantFor(prop: PropIR): string | null {
     return null;
 }
 
-function fieldFor(prop: PropIR, hint: string): SwiftField {
+function fieldFor(prop: PropIR, hint: string, owner: string): SwiftField {
     const { base, hasNull } = splitNullability(prop.type);
     const inner = swiftType(base, hint, prop.name);
     const constant = constantFor(prop);
@@ -835,6 +873,10 @@ function fieldFor(prop: PropIR, hint: string): SwiftField {
     } else if (hasNull) {
         optionality = 'nullable';
         type = `${inner}?`;
+    } else if (base.kind === 'array' && TOLERANT_ARRAY_FIELDS.has(`${owner}.${prop.name}`)) {
+        // Required on the wire, tolerant on the way in — see the set above.
+        optionality = 'plainArray';
+        type = inner;
     } else {
         optionality = 'plain';
         type = inner;
@@ -844,12 +886,13 @@ function fieldFor(prop: PropIR, hint: string): SwiftField {
 
 function defaultForField(f: SwiftField): string | null {
     if (f.optionality === 'tristate') return '.absent';
+    if (f.optionality === 'plainArray') return '[]';
     if (f.optionality === 'optional' || f.optionality === 'nullable') return 'nil';
     return null;
 }
 
 function emitStruct(name: string, props: PropIR[], hint: string): string {
-    const fields = props.map((p) => fieldFor(p, `${hint}${pascalFromToken(p.name)}`));
+    const fields = props.map((p) => fieldFor(p, `${hint}${pascalFromToken(p.name)}`, name));
     const L: string[] = [];
     L.push(`struct ${name}: Codable, Sendable, Equatable {`);
     for (const f of fields) {
@@ -891,6 +934,11 @@ function emitStruct(name: string, props: PropIR[], hint: string): string {
             case 'plain':
                 L.push(`        self.${f.swiftName} = try c.decode(${f.type}.self, forKey: .${f.swiftName})`);
                 break;
+            case 'plainArray':
+                L.push(
+                    `        self.${f.swiftName} = try c.decodeIfPresent(${f.type}.self, forKey: .${f.swiftName}) ?? []`,
+                );
+                break;
             case 'optional':
             case 'nullable':
                 L.push(`        self.${f.swiftName} = try c.decodeIfPresent(${bare}.self, forKey: .${f.swiftName})`);
@@ -915,6 +963,7 @@ function emitStruct(name: string, props: PropIR[], hint: string): string {
     for (const f of fields) {
         switch (f.optionality) {
             case 'plain':
+            case 'plainArray':
                 L.push(`        try c.encode(${f.swiftName}, forKey: .${f.swiftName})`);
                 break;
             case 'optional':

@@ -17,8 +17,16 @@ export interface PlayerStatsSummary {
     playerId: string;
     roundsWithStats: null | number;
     totals: null | StatMeasures;
+    girArrivalMetresTotals: null | GirArrivalMetresCell[];
     rounds: PlayerRoundStats[];
     nextCursor: null | string;
+}
+
+export interface FirstPuttCurvePoint {
+    firstPuttM: number;
+    attempts: number;
+    onePutts: number;
+    puttsTotal: number;
 }
 
 export interface PlayerRoundHoleStats {
@@ -42,8 +50,9 @@ export interface PlayerHoleStats {
     teeResult: null | 'fairway' | 'in_play' | 'trouble';
     teeMissDir: null | 'left' | 'right';
     gir: boolean | null;
-    greenMissDir: null | 'left' | 'right' | 'long' | 'short';
+    greenMissDir: null | 'left' | 'right' | 'long' | 'short' | 'hit_late';
     firstPutt: null | 'inside_1m' | '1_to_2m' | '2_to_4m' | '4_to_8m' | 'over_8m' | 'inside_2m' | '2_to_6m' | 'over_6m';
+    firstPuttM: null | number;
     putts: null | number;
     shortGameDifficulty: null | 'standard' | 'hard' | 'bunker';
     shortGameStrokes: null | number;
@@ -272,6 +281,23 @@ export interface StatMeasures {
     dblPenaltyApproach: number;
     dblPenaltyShort: number;
     dblPenaltyUnknown: number;
+    firstPuttMRecorded: number;
+    firstPuttMSum: number;
+    firstPuttMRecordedGir: number;
+    firstPuttMSumGir: number;
+    metersMadeSum: number;
+    metersMadeHoles: number;
+    onePuttsUnmeasured: number;
+    greenHitLate: number;
+    chipGirHoles: number;
+    chipGirOnePutt: number;
+    chipGirPar5: number;
+    chipGirPar5OnePutt: number;
+}
+
+export interface GirArrivalMetresCell {
+    meters: number;
+    holes: number;
 }
 
 export interface PlayerRoundStats {
@@ -284,6 +310,7 @@ export interface PlayerRoundStats {
     name: null | string;
     holeCount: number;
     measures: StatMeasures;
+    girArrivalMetres: GirArrivalMetresCell[];
 }
 
 export interface AppendedStatEvent {
@@ -306,7 +333,7 @@ export interface StatEvent {
     playHoleId: string;
     playerId: string;
     seq: number;
-    key: 'penalties' | 'tee_result' | 'tee_miss_dir' | 'gir' | 'green_miss_dir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'short_game_strokes' | 'penalty_source' | 'recovery_ok';
+    key: 'penalties' | 'tee_result' | 'tee_miss_dir' | 'gir' | 'green_miss_dir' | 'first_putt' | 'first_putt_m' | 'putts' | 'short_game_difficulty' | 'short_game_strokes' | 'penalty_source' | 'recovery_ok';
     value: null | string;
     recordedByPlayerId: null | string;
     recordedAt: string;
@@ -317,8 +344,9 @@ export interface PlayerStatsApi {
     myConfig(): Promise<PlayerStatsConfig>;
     putMyConfig(input: { enabled: boolean; tee: boolean; approach: boolean; putting: boolean; shortGame: boolean; penalties: boolean; recovery: boolean }): Promise<PlayerStatsConfig>;
     myStats(input: { limit?: number; cursor?: string }): Promise<PlayerStatsSummary>;
+    myFirstPuttCurve(): Promise<FirstPuttCurvePoint[]>;
     myRoundStats(input: { roundId: string }): Promise<PlayerRoundHoleStats[]>;
-    appendEvents(input: { token: string; items: ({ playHoleId: string; playerId: string; key: 'penalties' | 'tee_result' | 'tee_miss_dir' | 'gir' | 'green_miss_dir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'short_game_strokes' | 'penalty_source' | 'recovery_ok'; value: null | string; clientEventId: string })[] }): Promise<AppendStatEventsResult>;
+    appendEvents(input: { token: string; items: ({ playHoleId: string; playerId: string; key: 'penalties' | 'tee_result' | 'tee_miss_dir' | 'gir' | 'green_miss_dir' | 'first_putt' | 'first_putt_m' | 'putts' | 'short_game_difficulty' | 'short_game_strokes' | 'penalty_source' | 'recovery_ok'; value: null | string; clientEventId: string })[] }): Promise<AppendStatEventsResult>;
     byToken(input: { token: string }): Promise<PlayerHoleStats[]>;
     configsByToken(input: { token: string }): Promise<RoundPlayerStatModules[]>;
 }
@@ -337,6 +365,9 @@ export function createPlayerStatsClient(baseUrl: string): PlayerStatsApi {
                 if (v !== undefined) params.set(k, String(v));
             const qs = params.toString();
             return apiFetch({ method: 'GET', url: `${baseUrl}/players/me/stats${qs ? '?' + qs : ''}` });
+        },
+        async myFirstPuttCurve() {
+            return apiFetch({ method: 'GET', url: `${baseUrl}/players/me/stats/first-putt-curve` });
         },
         async myRoundStats(input) {
             const pathParams = new Set(['roundId']);

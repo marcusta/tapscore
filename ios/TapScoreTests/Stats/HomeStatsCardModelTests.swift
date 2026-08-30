@@ -29,7 +29,7 @@ final class HomeStatsCardModelTests: XCTestCase {
         PlayerRoundStats(
             roundId: id, date: date, courseName: "Linköpings GK", courseId: "c1",
             roundType: .full18, venueType: .outdoor, name: nil, holeCount: 18,
-            measures: measures)
+            measures: measures, girArrivalMetres: [])
     }
 
     /// A scored round with a full tee, approach and putting record — enough for

@@ -199,12 +199,237 @@ final class RoundStatsCaptureTests: XCTestCase {
         XCTAssertTrue(store.statPrompts.map(\.key).contains(.shortGameDifficulty))
         store.answerStat(.shortGameDifficulty, value: "hard")
 
-        // Undo the reveal: the answer goes with it.
-        store.answerStat(.gir, value: "1")
+        // Contradict the reveal: "On green" means no chip happened, so the
+        // answer goes with it. (A plain gir flip to hit no longer discards —
+        // a chip on a GIR hole is a real thing now.)
+        store.answerStat(.greenMissDir, value: "hit_late")
         XCTAssertFalse(store.statPrompts.map(\.key).contains(.shortGameDifficulty))
         XCTAssertNil(store.statValue(.shortGameDifficulty))
         store.answerStat(.teeResult, value: "fairway")
         XCTAssertNil(store.statValue(.recoveryOk))
+    }
+
+    /// The exact-metre refinement: it arrives with the bucket, carries THAT
+    /// bucket's options as a plain segments row, and leaves with it.
+    func testTheExactMetreRowFollowsTheBucket() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+
+        XCTAssertFalse(store.statPrompts.map(\.key).contains(.firstPuttM))
+        store.answerStat(.firstPutt, value: "2_to_4m")
+
+        guard let row = store.statPrompts.first(where: { $0.key == .firstPuttM }) else {
+            return XCTFail("the metre row should be on the card")
+        }
+        XCTAssertTrue(row.label.isEmpty, "it refines the row above it, so it has no heading")
+        guard case .segments(let options) = row.control else {
+            return XCTFail("the view gets plain segments, never a refine control")
+        }
+        XCTAssertEqual(options.map(\.value), ["2.5", "3", "3.5", "4"])
+
+        store.answerStat(.firstPuttM, value: "3")
+        XCTAssertEqual(store.statValue(.firstPuttM), "3")
+
+        // Another bucket is another question: the metre goes with the bucket.
+        store.answerStat(.firstPutt, value: "over_8m")
+        XCTAssertNil(store.statValue(.firstPuttM))
+        guard
+            case .segments(let wide) = store.statPrompts
+                .first(where: { $0.key == .firstPuttM })?.control
+        else { return XCTFail("the metre row should still be on the card") }
+        XCTAssertEqual(wide.map(\.label), ["10m", "12m", "14m", "16m", "20+"])
+
+        // Clearing the bucket takes the whole row away.
+        store.answerStat(.firstPutt, value: nil)
+        XCTAssertFalse(store.statPrompts.map(\.key).contains(.firstPuttM))
+    }
+
+    /// `green_miss_dir` is five options now, and the fifth is "On green" — an
+    /// ordinary segments row, so the card needs nothing new to draw it.
+    func testTheApproachRowOffersOnGreen() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.answerStat(.gir, value: "0")
+
+        guard let row = store.statPrompts.first(where: { $0.key == .greenMissDir }) else {
+            return XCTFail("a missed green asks which way")
+        }
+        XCTAssertEqual(row.label, "Approach")
+        guard case .segments(let options) = row.control else { return XCTFail("segments") }
+        XCTAssertEqual(options.map(\.value), ["long", "short", "left", "right", "hit_late"])
+        XCTAssertEqual(options.last?.label, "On green")
+    }
+
+    // MARK: - The short-game fold
+
+    /// A green hit in regulation keeps the short-game rows on the card but
+    /// folds them: `collapsed` is the view's cue to draw "Add short game"
+    /// instead of two rows nobody usually needs.
+    func testAGirHitFoldsTheShortGamePair() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+
+        XCTAssertEqual(store.statShortGameDisclosure, .none, "unanswered GIR folds nothing")
+
+        store.answerStat(.gir, value: "1")
+        XCTAssertEqual(store.statShortGameDisclosure, .collapsed)
+        XCTAssertTrue(
+            store.statPrompts.map(\.key).contains(.shortGameDifficulty),
+            "folded is not off the card — the rows are one tap away")
+
+        // An answer makes the rows ordinary again; nothing may hide a value.
+        store.answerStat(.shortGameDifficulty, value: "hard")
+        XCTAssertEqual(store.statShortGameDisclosure, .expanded)
+    }
+
+    /// A missed green never folds — that is the hole where the chip is the
+    /// story — and neither does a player who does not track short game.
+    func testAMissedGreenAndAnUntrackedModuleNeverFold() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.answerStat(.gir, value: "0")
+        XCTAssertEqual(store.statShortGameDisclosure, .none)
+
+        RoundStubURLProtocol.reset()
+        routeRound(configs: RoundFixtures.statsConfigs(shortGame: false))
+        let untracked = makeStore()
+        await untracked.load()
+        untracked.openKeypad(ballId: "ball-1")
+        untracked.answerStat(.gir, value: "1")
+        XCTAssertEqual(untracked.statShortGameDisclosure, .none)
+    }
+
+    /// The counter folds with its sibling: the pair shares one gate, so a
+    /// disclosure that hid one and showed the other would misdescribe both.
+    func testTheFoldedPairIsBothShortGameRows() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.answerStat(.gir, value: "1")
+
+        let folded = store.statPrompts.map(\.key).filter { ShortGameFold.foldedKeys.contains($0) }
+        XCTAssertEqual(folded, [.shortGameDifficulty, .shortGameStrokes])
+
+        let card = store.shortGameFold.visible(
+            store.statPrompts, disclosure: store.statShortGameDisclosure,
+            visit: store.currentVisit)
+        XCTAssertEqual(card.filter { $0 == .shortGameDisclosure }.count, 1)
+        XCTAssertFalse(
+            card.contains { row in
+                if case .prompt(let p) = row { return ShortGameFold.foldedKeys.contains(p.key) }
+                return false
+            }, "the pair is replaced, not accompanied")
+    }
+
+    /// **The rows must not collapse under the finger.** Answer short game on a
+    /// missed green, flip GIR to hit (the answer survives, so the rows are
+    /// open), then clear that answer: the model drops back to `collapsed`, and
+    /// a fold that only remembered the disclosure BUTTON would swap two open
+    /// rows for one 48pt row on the same frame as the tap.
+    func testClearingTheOnlyShortGameAnswerDoesNotRefoldTheRows() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+
+        store.answerStat(.gir, value: "0")
+        store.answerStat(.shortGameDifficulty, value: "hard")
+        store.answerStat(.gir, value: "1")
+        XCTAssertEqual(store.statValue(.shortGameDifficulty), "hard", "a chip on a GIR hole is real")
+        XCTAssertEqual(store.statShortGameDisclosure, .expanded)
+
+        store.answerStat(.shortGameDifficulty, value: nil)
+        XCTAssertEqual(store.statShortGameDisclosure, .collapsed, "the model has nothing to show")
+        XCTAssertFalse(
+            store.shortGameFold.isFolded(
+                disclosure: store.statShortGameDisclosure, visit: store.currentVisit),
+            "this visit was already open — it stays open")
+
+        let card = store.shortGameFold.visible(
+            store.statPrompts, disclosure: store.statShortGameDisclosure,
+            visit: store.currentVisit)
+        XCTAssertFalse(card.contains(.shortGameDisclosure))
+    }
+
+    /// Moving the cursor away and back leaves the card open: nothing on the
+    /// store's path — reseeding the step, rebuilding it for another ball —
+    /// drops the opened visit. (That the memory ALSO survives `StatsView` being
+    /// destroyed follows from where it lives, and no unit test can see it: the
+    /// view holds no fold state to lose.)
+    func testUnfoldingSurvivesLeavingAndReenteringTheCard() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.answerStat(.gir, value: "1")
+        XCTAssertTrue(
+            store.shortGameFold.isFolded(
+                disclosure: store.statShortGameDisclosure, visit: store.currentVisit))
+
+        let visit = store.currentVisit
+        store.openShortGame()
+
+        // Off to another ball and back — the same card, still open.
+        store.selectBall(index: 1)
+        store.selectBall(index: 0)
+        XCTAssertEqual(store.currentVisit, visit)
+        XCTAssertFalse(
+            store.shortGameFold.isFolded(
+                disclosure: store.statShortGameDisclosure, visit: visit))
+    }
+
+    /// The counter unfolds as surely as the chips do: "answered" is a fact
+    /// about the pair, not about which control produced it.
+    func testTheShotsCounterAlsoUnfoldsTheVisitForGood() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.answerStat(.gir, value: "1")
+        XCTAssertTrue(
+            store.shortGameFold.isFolded(
+                disclosure: store.statShortGameDisclosure, visit: store.currentVisit))
+
+        // Straight to the stepper — no disclosure tap, no chip.
+        store.stepStat(.shortGameStrokes, by: 1)
+        XCTAssertEqual(store.statShortGameDisclosure, .expanded)
+        XCTAssertFalse(
+            store.shortGameFold.isFolded(disclosure: .collapsed, visit: store.currentVisit),
+            "the stepper recorded the visit, so a later collapse cannot re-fold it")
+
+        // Take the count away again: the model has nothing to show, the rows
+        // stay drawn.
+        store.answerStat(.shortGameStrokes, value: nil)
+        XCTAssertEqual(store.statShortGameDisclosure, .collapsed)
+        let card = store.shortGameFold.visible(
+            store.statPrompts, disclosure: store.statShortGameDisclosure,
+            visit: store.currentVisit)
+        XCTAssertFalse(card.contains(.shortGameDisclosure))
+    }
+
+    /// A card that OPENS holding a stored answer is open from the first frame,
+    /// and stays open if the golfer clears it.
+    func testAStoredShortGameAnswerOpensTheCardUnfolded() async {
+        routeRound(
+            stats: RoundFixtures.statRows(gir: true, shortGameDifficulty: "bunker"))
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+
+        XCTAssertEqual(store.statShortGameDisclosure, .expanded)
+        store.answerStat(.shortGameDifficulty, value: nil)
+        XCTAssertFalse(
+            store.shortGameFold.isFolded(
+                disclosure: store.statShortGameDisclosure, visit: store.currentVisit))
     }
 
     func testAParThreeDoesNotAskAboutTheTeeShot() async {

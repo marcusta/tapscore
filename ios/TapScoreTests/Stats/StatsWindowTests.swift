@@ -28,7 +28,7 @@ final class StatsWindowTests: XCTestCase {
         PlayerRoundStats(
             roundId: id, date: date, courseName: courseName, courseId: courseId,
             roundType: type, venueType: venue, name: name, holeCount: holes,
-            measures: measures)
+            measures: measures, girArrivalMetres: [])
     }
 
     /// `count` rounds, one a day, newest `2026-07-30` and walking backwards.

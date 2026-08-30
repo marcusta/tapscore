@@ -29,6 +29,7 @@ function round(
         name: null,
         holeCount: 18,
         measures: ZERO_MEASURES,
+        girArrivalMetres: [],
         ...over,
     };
 }
@@ -62,6 +63,7 @@ const holeRows: PlayerRoundHoleStats[] = [
             teeResult: 'fairway',
             gir: false,
             firstPutt: null,
+            firstPuttM: null,
             putts: 2,
             shortGameDifficulty: null,
             penalties: 0,
@@ -94,7 +96,14 @@ function apiError(status: number, message: string): Error {
 }
 
 function page(rounds: PlayerRoundStats[], nextCursor: string | null = null): PlayerStatsSummary {
-    return { playerId: 'p1', roundsWithStats: rounds.length, totals: null, rounds, nextCursor };
+    return {
+        playerId: 'p1',
+        roundsWithStats: rounds.length,
+        totals: null,
+        girArrivalMetresTotals: null,
+        rounds,
+        nextCursor,
+    };
 }
 
 const apiMock = {

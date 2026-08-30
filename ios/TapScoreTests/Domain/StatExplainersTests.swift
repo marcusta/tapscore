@@ -23,7 +23,7 @@ final class StatExplainersTests: XCTestCase {
     /// must be the same set, and the TS twin asserts this list.
     func testTheTableCoversExactlyTheVocabulary() {
         XCTAssertEqual(Set(StatExplainers.table.keys), Set(StatVocabulary.order))
-        XCTAssertEqual(StatExplainers.table.count, 11)
+        XCTAssertEqual(StatExplainers.table.count, 12)
     }
 
     /// Recovery is the one the owner named first: if anything ships partial,
@@ -45,7 +45,8 @@ final class StatExplainersTests: XCTestCase {
         XCTAssertEqual(
             StatExplainers.explainer(.greenMissDir),
             "Which way you missed, seen from where you played the approach. Long is past the "
-                + "flag, short is in front of it. Left and right are exactly that.")
+                + "flag, short is in front of it. Left and right are exactly that. On green "
+                + "means the ball reached the green, just one shot too late to count as hit.")
         XCTAssertEqual(
             StatExplainers.explainer(.shortGameStrokes),
             "How many shots it took to get from off the green onto it. One is the normal answer "

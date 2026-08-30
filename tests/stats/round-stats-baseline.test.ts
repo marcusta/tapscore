@@ -55,6 +55,7 @@ function round(roundId: string, date: string): PlayerRoundStats {
         name: null,
         holeCount: 18,
         measures,
+        girArrivalMetres: [],
     };
 }
 
@@ -73,6 +74,7 @@ const holeRows: PlayerRoundHoleStats[] = [
             teeResult: 'fairway',
             gir: false,
             firstPutt: null,
+            firstPuttM: null,
             putts: 2,
             shortGameDifficulty: null,
             penalties: 0,

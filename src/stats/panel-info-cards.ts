@@ -38,8 +38,12 @@ import {
     quantity,
     troubleTaxSample,
     vsParByTeeSample,
+    UNIT_CHIPPED_GREENS,
+    UNIT_FIRST_PUTTS,
     UNIT_GREENS,
     UNIT_HOLES,
+    UNIT_MEASURED_GREENS,
+    UNIT_MEASURED_ONE_PUTTS,
     UNIT_ROUNDS,
     type SampleUnit,
 } from './stats-format';
@@ -174,11 +178,44 @@ export function panelInfoCards(
             const p = model.approach;
             if (!p) return [];
             return [
+                // On the rows' own gate, matching the block list: the pair only
+                // draws when a green was hit after regulation, and a card for a
+                // row nobody can see explains nothing.
+                ...(p.greenHitLate > 0
+                    ? [
+                          card(
+                              'greenAttemptsHit',
+                              'Greens hit',
+                              body(
+                                  STATS_COPY.greenAttemptsHit,
+                                  measuredOver(p.greenAttemptsHit.d, UNIT_HOLES),
+                              ),
+                          ),
+                      ]
+                    : []),
                 card(
                     'greenMiss',
                     'Where you miss the green',
                     body(STATS_COPY.greenMiss, measuredOver(p.greenMissRecorded, UNIT_HOLES)),
                 ),
+                // The exact average first, because the figure comes first in the
+                // section: the sheet reads in block order. Its sample is the
+                // refinement cohort's OWN, deliberately not the bucket sample in
+                // the card below it, which is every green hit. The two numbers
+                // differing is the point — it is how the reader sees how much of
+                // the section the metre tap covers.
+                ...(p.proximityOnGir.d > 0
+                    ? [
+                          card(
+                              'proximityOnGir',
+                              'Average first putt',
+                              body(
+                                  STATS_COPY.proximityOnGir,
+                                  measuredOver(p.proximityOnGir.d, UNIT_MEASURED_GREENS),
+                              ),
+                          ),
+                      ]
+                    : []),
                 card(
                     'proximity',
                     'Proximity with GIR',
@@ -247,6 +284,44 @@ export function panelInfoCards(
                         `Measured against the ${cohortLabel(baseline.cohort)} reference — change it under “${STATS_COPY.filterBaseline}” in Filters.`,
                     ),
                 ),
+                // The curve, on the rows' gate. Its sample is the attempts the
+                // points are built from — summed here rather than carried on
+                // the panel, because the points ARE the sample and any other
+                // number would be a second version of it.
+                ...(p.curve.length > 0
+                    ? [
+                          card(
+                              'makeCurve',
+                              'Holed, by distance',
+                              body(
+                                  STATS_COPY.makeCurve,
+                                  STATS_COPY.makeCurveWindow,
+                                  measuredOver(
+                                      p.curve.reduce((n, point) => n + point.attempts, 0),
+                                      UNIT_FIRST_PUTTS,
+                                  ),
+                              ),
+                          ),
+                      ]
+                    : []),
+                ...(p.metersMadeHoles > 0
+                    ? [
+                          card(
+                              'metersMade',
+                              'Metres of first putts holed',
+                              body(
+                                  STATS_COPY.metersMade,
+                                  measuredOver(p.metersMadeHoles, UNIT_MEASURED_ONE_PUTTS),
+                                  // The coverage half, stated as a count and
+                                  // never as an exclusion: these holes were
+                                  // one-putted, they simply carry no distance.
+                                  p.onePuttsUnmeasured > 0
+                                      ? `${quantity(p.onePuttsUnmeasured, UNIT_HOLES)} you one-putted have no distance recorded.`
+                                      : null,
+                              ),
+                          ),
+                      ]
+                    : []),
                 card(
                     'threePutt',
                     'Three or more putts',
@@ -281,78 +356,106 @@ export function panelInfoCards(
             if (!p) return [];
             const attempts =
                 p.scramble.standard.d + p.scramble.hard.d + p.scramble.bunker.d;
+            // The same gate the blocks take: with no scramble attempt none of
+            // the miss sections is on screen, and a sheet explaining rows the
+            // reader cannot see is worse than a short sheet.
+            const missCards: StatsInfoCard[] =
+                attempts <= 0
+                    ? []
+                    : [
+                          // Five rows, five cards. This used to be ONE card that opened
+                          // "Scrambling" and then ran four unrelated definitions together,
+                          // which put the meaning of "Sand save" — the app's own vocabulary
+                          // for the bunker scramble — three sentences deep under a heading
+                          // that does not contain the word.
+                          card(
+                              'missMix',
+                              STATS_COPY.missMixHead,
+                              body(STATS_COPY.missMix, measuredOver(attempts, UNIT_HOLES)),
+                          ),
+                          card(
+                              'scrambling',
+                              'Scrambling',
+                              body(STATS_COPY.scrambling, measuredOver(attempts, UNIT_HOLES)),
+                          ),
+                          card(
+                              'sandSave',
+                              'Sand save',
+                              body(STATS_COPY.sandSave, measuredOver(p.sandSave.d, UNIT_HOLES)),
+                          ),
+                          card(
+                              'extraShortGameStrokes',
+                              'Extra short-game shots',
+                              body(
+                                  STATS_COPY.extraShortGameStrokes,
+                                  measuredOver(p.shortGameStrokesRecorded, UNIT_HOLES),
+                              ),
+                          ),
+                          // ONE card for the three outcome groups: same five rows, same
+                          // denominator rule, so one explanation serves them all. The
+                          // multi-chip sentence rides along because its row lives inside
+                          // the groups now.
+                          card(
+                              'chipOutcomes',
+                              'After the chip',
+                              body(
+                                  STATS_COPY.chipOutcomes,
+                                  STATS_COPY.multiChip,
+                                  measuredOver(attempts, UNIT_HOLES),
+                              ),
+                          ),
+                          card(
+                              'missCost',
+                              'Average vs par, by how hard the miss was',
+                              body(
+                                  STATS_COPY.missCost,
+                                  measuredOver(
+                                      p.missCost.standard.d +
+                                          p.missCost.hard.d +
+                                          p.missCost.bunker.d,
+                                      UNIT_HOLES,
+                                  ),
+                              ),
+                          ),
+                          card(
+                              'chipInside2m',
+                              'Chipped to inside 2 m',
+                              body(
+                                  STATS_COPY.conversionInside2m,
+                                  measuredOver(p.conversionInside2m.d, UNIT_HOLES),
+                              ),
+                          ),
+                          card(
+                              'savedInside2m',
+                              'Saved when inside 2 m',
+                              body(
+                                  STATS_COPY.savedInside2m,
+                                  measuredOver(p.savedInside2m.overall.d, UNIT_HOLES),
+                              ),
+                          ),
+                          // Counts, not rates: there is no denominator to report, so the
+                          // card is the sentence alone.
+                          card('chipIns', 'Chip-ins', STATS_COPY.chipIns),
+                      ];
             return [
-                // Five rows, five cards. This used to be ONE card that opened
-                // "Scrambling" and then ran four unrelated definitions together,
-                // which put the meaning of "Sand save" — the app's own vocabulary
-                // for the bunker scramble — three sentences deep under a heading
-                // that does not contain the word.
-                card(
-                    'missMix',
-                    STATS_COPY.missMixHead,
-                    body(STATS_COPY.missMix, measuredOver(attempts, UNIT_HOLES)),
-                ),
-                card(
-                    'scrambling',
-                    'Scrambling',
-                    body(STATS_COPY.scrambling, measuredOver(attempts, UNIT_HOLES)),
-                ),
-                card(
-                    'sandSave',
-                    'Sand save',
-                    body(STATS_COPY.sandSave, measuredOver(p.sandSave.d, UNIT_HOLES)),
-                ),
-                card(
-                    'extraShortGameStrokes',
-                    'Extra short-game shots',
-                    body(
-                        STATS_COPY.extraShortGameStrokes,
-                        measuredOver(p.shortGameStrokesRecorded, UNIT_HOLES),
-                    ),
-                ),
-                // ONE card for the three outcome groups: same five rows, same
-                // denominator rule, so one explanation serves them all. The
-                // multi-chip sentence rides along because its row lives inside
-                // the groups now.
-                card(
-                    'chipOutcomes',
-                    'After the chip',
-                    body(
-                        STATS_COPY.chipOutcomes,
-                        STATS_COPY.multiChip,
-                        measuredOver(attempts, UNIT_HOLES),
-                    ),
-                ),
-                card(
-                    'missCost',
-                    'Average vs par, by how hard the miss was',
-                    body(
-                        STATS_COPY.missCost,
-                        measuredOver(
-                            p.missCost.standard.d + p.missCost.hard.d + p.missCost.bunker.d,
-                            UNIT_HOLES,
-                        ),
-                    ),
-                ),
-                card(
-                    'chipInside2m',
-                    'Chipped to inside 2 m',
-                    body(
-                        STATS_COPY.conversionInside2m,
-                        measuredOver(p.conversionInside2m.d, UNIT_HOLES),
-                    ),
-                ),
-                card(
-                    'savedInside2m',
-                    'Saved when inside 2 m',
-                    body(
-                        STATS_COPY.savedInside2m,
-                        measuredOver(p.savedInside2m.overall.d, UNIT_HOLES),
-                    ),
-                ),
-                // Counts, not rates: there is no denominator to report, so the
-                // card is the sentence alone.
-                card('chipIns', 'Chip-ins', STATS_COPY.chipIns),
+                ...missCards,
+                // Last, like the rows: the one section of this card that is not
+                // about a missed green. The par-5 sentence rides along rather
+                // than taking a card of its own — it is the same holes, read one
+                // par narrower.
+                ...(p.chipOnGir.d > 0
+                    ? [
+                          card(
+                              'chipOnGir',
+                              'Chipped on a green in regulation',
+                              body(
+                                  STATS_COPY.chipOnGir,
+                                  STATS_COPY.chipOnGirPar5,
+                                  measuredOver(p.chipOnGir.d, UNIT_CHIPPED_GREENS),
+                              ),
+                          ),
+                      ]
+                    : []),
             ];
         }
         case 'scoring': {

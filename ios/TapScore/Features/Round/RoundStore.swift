@@ -1458,6 +1458,42 @@ final class RoundStore {
 
     func statIsAnswered(_ key: StatEventKey) -> Bool { statStep?.isAnswered(key) ?? false }
 
+    /// How the short-game pair presents right now: `none` = draw the rows (or
+    /// they are off the card entirely), `collapsed` = fold them behind the
+    /// "Add short game" row, `expanded` = a value exists, so draw them.
+    var statShortGameDisclosure: StatStep.ShortGameDisclosure {
+        statStep?.shortGameDisclosure ?? .none
+    }
+
+    /// Which visits have had the short-game pair unfolded. It lives on the
+    /// store, not in `StatsView`'s `@State`, because the stats step is destroyed
+    /// every time the golfer drops back to the keypad — and a fold that forgets
+    /// is a fold that re-hides rows the golfer opened on purpose.
+    private(set) var shortGameFold = ShortGameFold()
+
+    /// The visit the OPEN STEP is about — `statCell`, not the cursor.
+    ///
+    /// The two can differ for a beat: `clampPosition()` moves the cursor and
+    /// calls `refreshStatStep()` without reseeding, so a cursor-derived key
+    /// would file the disclosure it read from one card under another card's
+    /// name. Reading both from `statCell` makes that impossible by construction.
+    var currentVisit: VisitKey {
+        VisitKey(playerId: statCell?.playerId, playHoleId: statCell?.playHoleId)
+    }
+
+    /// "Add short game" was tapped.
+    func openShortGame() { shortGameFold.open(currentVisit) }
+
+    /// Unfolding is STICKY per visit, and an answer unfolds as surely as the
+    /// button does. Without this, clearing the only short-game answer on a
+    /// GIR-hit hole drops the disclosure state back to `collapsed` and the two
+    /// open rows collapse into one — on the same frame as the tap that cleared
+    /// them, under the golfer's finger.
+    private func noteShortGameExpansion() {
+        guard statShortGameDisclosure == .expanded else { return }
+        shortGameFold.open(currentVisit)
+    }
+
     /// Where the GIR prompt stands against the score just entered — what the
     /// view needs to decide between a selected segment, the pending line and
     /// the disagreement line (§B.5). A pure read; nothing writes until close.
@@ -1481,6 +1517,7 @@ final class RoundStore {
     func answerStat(_ key: StatEventKey, value: String?) {
         guard statStep != nil else { return }
         statStep?.answer(key, value: value)
+        noteShortGameExpansion()
         mirrorToFormatMetadata(key)
     }
 
@@ -1489,6 +1526,7 @@ final class RoundStore {
     func stepStat(_ key: StatEventKey, by delta: Int) {
         guard statStep != nil else { return }
         statStep?.step(key, by: delta)
+        noteShortGameExpansion()
         mirrorToFormatMetadata(key)
     }
 
@@ -1521,6 +1559,9 @@ final class RoundStore {
         }
         closeStatStep()
         setStatCell(cell, step: cell.flatMap(makeStatStep))
+        // A visit that opens with a stored short-game answer opens UNFOLDED,
+        // and stays that way if the golfer clears it.
+        noteShortGameExpansion()
     }
 
     /// Re-read the durable half under the SAME cell, keeping the draft.
@@ -1531,10 +1572,14 @@ final class RoundStore {
         }
         guard statStep != nil, let modules = statModules[cell.playerId] else {
             setStatCell(cell, step: makeStatStep(cell))
+            noteShortGameExpansion()
             return
         }
         statStep?.refresh(modules: modules, persisted: persistedStats(for: cell))
         syncStatScore()
+        // Durable rows that land under an open step can unfold it, and once
+        // unfolded it stays that way for this visit.
+        noteShortGameExpansion()
     }
 
     /// Push the cell's stroke count into the open step. The derived-GIR rule

@@ -187,6 +187,10 @@ final class StatMeasuresMathTests: XCTestCase {
         m.strokesVsParMissStandard = 2
         m.holesScoredMissHard = 1
         m.strokesVsParMissHard = -1
+        // Migration 064: the two inside-1m one-putts (H2, H5) are priced at
+        // 0.5 m each in meters made; nothing else touches the new columns.
+        m.metersMadeSum = 1
+        m.metersMadeHoles = 2
     }
 
     /// A full eighteen with every short-game term populated.
@@ -567,6 +571,18 @@ final class StatMeasuresMathTests: XCTestCase {
         m.dblPenaltyApproach = 212
         m.dblPenaltyShort = 213
         m.dblPenaltyUnknown = 214
+        m.firstPuttMRecorded = 215
+        m.firstPuttMSum = 216
+        m.firstPuttMRecordedGir = 217
+        m.firstPuttMSumGir = 218
+        m.metersMadeSum = 219
+        m.metersMadeHoles = 220
+        m.onePuttsUnmeasured = 221
+        m.greenHitLate = 222
+        m.chipGirHoles = 223
+        m.chipGirOnePutt = 224
+        m.chipGirPar5 = 225
+        m.chipGirPar5OnePutt = 226
     }
 
     func testEveryMeasureColumnIsAdditiveIncludingTheOnesNoRateReads() throws {
@@ -583,8 +599,8 @@ final class StatMeasuresMathTests: XCTestCase {
         // The count is asserted (and mirrored in the TypeScript twin) so that a
         // field added to the server's measure set and forgotten in the fixture
         // is caught, rather than sweeping a smaller set and passing.
-        XCTAssertEqual(singleFields.count, 214)
-        XCTAssertEqual(Set(singleFields.values).count, 214)
+        XCTAssertEqual(singleFields.count, 226)
+        XCTAssertEqual(Set(singleFields.values).count, 226)
         for (key, single) in singleFields {
             XCTAssertEqual(doubledFields[key], single * 2, "column \(key) is not additive")
         }
@@ -596,7 +612,7 @@ final class StatMeasuresMathTests: XCTestCase {
         let doubledExample = try decoder.decode(
             [String: Double].self,
             from: encoder.encode(StatMeasuresMath.sum([workedExample, workedExample])))
-        XCTAssertEqual(exampleFields.count, 214)
+        XCTAssertEqual(exampleFields.count, 226)
         for (key, single) in exampleFields {
             XCTAssertEqual(doubledExample[key], single * 2, "column \(key) is not additive")
         }
@@ -2444,5 +2460,287 @@ final class StatMeasuresMathTests: XCTestCase {
         XCTAssertEqual(approachShift, -1.0, accuracy: 1e-9)
         XCTAssertEqual(shortGameShift, 1.0, accuracy: 1e-9)
         XCTAssertEqual(try XCTUnwrap(heavier.total), try XCTUnwrap(w.total), accuracy: 1e-9)
+    }
+
+    // MARK: Short game on the green side of the cohort (migration 064)
+
+    /// A par 4 hit in regulation whose recorded 1-stroke chip rides in the
+    /// effective sum with NO miss count — the 064 view's gir = 1 arm.
+    private lazy var girChipHole: StatMeasures = measures { m in
+        m.holesScored = 1
+        m.attHolesPar45Gir = 1
+        m.attStrokes = 4
+        m.attPutts = 1
+        m.attFairwayPar4 = 1
+        m.attGirFirstPutt1To2m = 1
+        m.attSgStrokesEffectiveStandard = 1
+    }
+
+    func testAChipOnAGreenHitChargesShortGameNotTheApproachResidual() throws {
+        let w = StatMeasuresMath.strokesLostV3(girChipHole)
+        let tee = try XCTUnwrap(w.tee)
+        let approach = try XCTUnwrap(w.approach)
+        let shortGame = try XCTUnwrap(w.shortGame)
+        let putting = try XCTUnwrap(w.putting)
+        let penalties = try XCTUnwrap(w.penalties)
+        let total = try XCTUnwrap(w.total)
+        // No miss, no chip-outcome buckets, no baseline: shortGame is exactly
+        // the one counted stroke.
+        XCTAssertEqual(shortGame, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(
+            tee + approach + shortGame + putting + penalties, total, accuracy: 1e-9,
+            "the five terms must telescope to the total")
+        XCTAssertEqual(w.coverage.attributed, 1)
+
+        // Against the pre-064 view of the same hole (the chip stroke left in
+        // the residual): exactly one stroke moves from approach to short game.
+        var preView = girChipHole
+        preView.attSgStrokesEffectiveStandard = 0
+        let residual = StatMeasuresMath.strokesLostV3(preView)
+        XCTAssertEqual(try XCTUnwrap(residual.shortGame), 0.0, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(residual.approach) - approach, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(residual.total), total, accuracy: 1e-9)
+    }
+
+    /// A hit_late hole as the 064 view counts it: on the GREEN side of the
+    /// cohort partition, an arrival bucket, zero short-game strokes.
+    private lazy var hitLateHole: StatMeasures = measures { m in
+        m.holesScored = 1
+        m.attHolesPar45Gir = 1
+        m.attStrokes = 5
+        m.attPutts = 2
+        m.attFairwayPar4 = 1
+        m.attGirFirstPutt2To4m = 1
+    }
+
+    func testAHitLateHoleTelescopesWithZeroShortGameContribution() throws {
+        let w = StatMeasuresMath.strokesLostV3(hitLateHole)
+        let tee = try XCTUnwrap(w.tee)
+        let approach = try XCTUnwrap(w.approach)
+        let shortGame = try XCTUnwrap(w.shortGame)
+        let putting = try XCTUnwrap(w.putting)
+        let penalties = try XCTUnwrap(w.penalties)
+        let total = try XCTUnwrap(w.total)
+        XCTAssertEqual(w.coverage.attributed, 1)
+        XCTAssertEqual(shortGame, 0.0, accuracy: 1e-9)
+        // The extra stroke to the green sits in approach.
+        XCTAssertGreaterThan(approach, 0)
+        XCTAssertEqual(penalties, 0.0, accuracy: 1e-9)
+        XCTAssertEqual(
+            tee + approach + shortGame + putting + penalties, total, accuracy: 1e-9,
+            "the five terms must telescope to the total")
+    }
+
+    // MARK: Exact first-putt metres (migration 064)
+
+    func testExpectedPuttsV2IsFrozenAtTheInterpolatedVocabularyAndMonotone() {
+        // The 19 refine values ("20+" stores 20), each with its interpolated
+        // price. Frozen by the language: `static let` over a value type.
+        XCTAssertEqual(
+            StatMeasuresMath.expectedPuttsV2.map { [$0.meters, $0.putts] },
+            [
+                [0.3, 1.03], [0.5, 1.05], [0.8, 1.17],
+                [1, 1.25], [1.5, 1.45], [2, 1.58],
+                [2.5, 1.72], [3, 1.85], [3.5, 1.89], [4, 1.93],
+                [5, 2.02], [6, 2.1], [7, 2.15], [8, 2.2],
+                [10, 2.3], [12, 2.4], [14, 2.5], [16, 2.6], [20, 2.8],
+            ])
+
+        // Strictly increasing in both columns: a longer putt is never cheaper.
+        let table = StatMeasuresMath.expectedPuttsV2
+        for (previous, entry) in zip(table, table.dropFirst()) {
+            XCTAssertGreaterThan(entry.meters, previous.meters)
+            XCTAssertGreaterThan(entry.putts, previous.putts)
+        }
+    }
+
+    func testV2AgreesWithTheFrozenV1AnchorsAtTheBucketMidpointsAndBoundaries() {
+        let v1 = StatMeasuresMath.expectedPuttsV1
+        // The interpolation anchors ARE the v1 values: at each bucket's
+        // representative distance the two tables answer identically.
+        XCTAssertEqual(StatMeasuresMath.expectedPuttsV2(at: 0.5), v1.inside1m)
+        XCTAssertEqual(StatMeasuresMath.expectedPuttsV2(at: 1.5), v1.oneTo2m)
+        XCTAssertEqual(StatMeasuresMath.expectedPuttsV2(at: 3), v1.twoTo4m)
+        XCTAssertEqual(StatMeasuresMath.expectedPuttsV2(at: 6), v1.fourTo8m)
+        XCTAssertEqual(StatMeasuresMath.expectedPuttsV2(at: 12), v1.over8m)
+
+        // At each bucket boundary the value sits strictly between the two
+        // adjacent anchors — the refinement redistributes within a bucket, it
+        // never jumps outside the anchors it was drawn from.
+        let boundaries: [(meters: Double, below: Double, above: Double)] = [
+            (1, v1.inside1m, v1.oneTo2m),
+            (2, v1.oneTo2m, v1.twoTo4m),
+            (4, v1.twoTo4m, v1.fourTo8m),
+            (8, v1.fourTo8m, v1.over8m),
+        ]
+        for boundary in boundaries {
+            let value = StatMeasuresMath.expectedPuttsV2(at: boundary.meters)
+            XCTAssertGreaterThan(value, boundary.below)
+            XCTAssertLessThan(value, boundary.above)
+        }
+    }
+
+    func testTheV2LookupAnswersOffVocabularyMetresWithTheNearestValueTiesShort() {
+        // The vocabulary is closed, so these are Postel cases, not expected input.
+        XCTAssertEqual(StatMeasuresMath.expectedPuttsV2(at: 0.35), 1.03) // nearest is 0.3
+        XCTAssertEqual(StatMeasuresMath.expectedPuttsV2(at: 9), 2.2) // exact tie 8/10 → shorter
+        XCTAssertEqual(StatMeasuresMath.expectedPuttsV2(at: 25), 2.8) // beyond → last row
+    }
+
+    func testEachBucketOwnsItsUpperEdgeInTheMetreToBucketMap() {
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 0.3), .inside1m)
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 0.8), .inside1m)
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 1), .oneTo2m)
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 2), .oneTo2m)
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 2.5), .twoTo4m)
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 4), .twoTo4m)
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 5), .fourTo8m)
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 8), .fourTo8m)
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 10), .over8m)
+        XCTAssertEqual(StatMeasuresMath.firstPuttBucket(forMeters: 20), .over8m)
+    }
+
+    func testAMetreRefinedArrivalMovesStrokesBetweenPuttingAndApproachAndTheTelescopeStillCloses()
+        throws
+    {
+        // I1's single GIR hole arrived in `4_to_8m`. Refining it to exactly
+        // 5 m (v2 2.02 against the 2.10 anchor — 6 m is deliberately NOT used,
+        // because v2(6) equals the anchor and would make the refinement
+        // invisible) lowers the expected arrival by 0.08: approach drops by
+        // it, putting absorbs it, and nothing else moves.
+        let i1 = measures {
+            $0.holesScored = 1
+            $0.attHolesPar45Gir = 1
+            $0.attStrokes = 5
+            $0.attPutts = 2
+            $0.attFairwayPar4 = 1
+            $0.attGirFirstPutt4To8m = 1
+        }
+        let base = StatMeasuresMath.strokesLostV3(i1)
+        let refined = StatMeasuresMath.strokesLostV3(
+            i1, girArrivalMetres: [SgGirArrivalMetres(meters: 5, holes: 1)])
+        XCTAssertEqual(
+            try XCTUnwrap(refined.approach) - (try XCTUnwrap(base.approach)), -0.08,
+            accuracy: 1e-9)
+        XCTAssertEqual(
+            try XCTUnwrap(refined.putting) - (try XCTUnwrap(base.putting)), 0.08, accuracy: 1e-9)
+        assertClose(refined.tee, try XCTUnwrap(base.tee))
+        assertClose(refined.shortGame, try XCTUnwrap(base.shortGame))
+        assertClose(refined.penalties, try XCTUnwrap(base.penalties))
+        assertClose(refined.total, try XCTUnwrap(base.total))
+        let terms = try StrokesLostComponent.allCases.map { try XCTUnwrap(refined[$0]) }
+        XCTAssertEqual(
+            terms.reduce(0, +), try XCTUnwrap(refined.total), accuracy: 1e-9,
+            "the five terms must telescope to the total")
+
+        // A metre that IS its bucket's anchor refines to a no-op under the
+        // default table.
+        XCTAssertEqual(
+            StatMeasuresMath.strokesLostV3(
+                i1, girArrivalMetres: [SgGirArrivalMetres(meters: 6, holes: 1)]),
+            base)
+
+        // The bundle entry point forwards the refinement unchanged.
+        XCTAssertEqual(
+            StatMeasuresMath.strokesLostV3(
+                i1, baseline: SgBaselines.bundle(for: .hcp12),
+                girArrivalMetres: [SgGirArrivalMetres(meters: 5, holes: 1)]),
+            refined)
+    }
+
+    func testTheTelescopeSurvivesMetreRefinementUnderEveryCohortBundle() throws {
+        let cells = [
+            SgGirArrivalMetres(meters: 0.5, holes: 1),
+            SgGirArrivalMetres(meters: 3.5, holes: 2),
+            SgGirArrivalMetres(meters: 16, holes: 1),
+        ]
+        for m in [sgRoundA, workedExample, girChipHole, attributionBunker] {
+            for cohort in SgCohort.allCases {
+                let w = StatMeasuresMath.strokesLostV3(
+                    m, baseline: SgBaselines.bundle(for: cohort), girArrivalMetres: cells)
+                let total = try XCTUnwrap(w.total)
+                let terms = try StrokesLostComponent.allCases.map { try XCTUnwrap(w[$0]) }
+                XCTAssertEqual(terms.reduce(0, +), total, accuracy: 1e-9, "\(cohort)")
+            }
+        }
+    }
+
+    /// The 064 rate helpers over one hand-checkable window: six GIR answers,
+    /// three hit, one hit late; three GIR holes with exact metres summing
+    /// 16.5 m; two GIR-chip holes, one converted, the par-5 one converted.
+    private lazy var metresExample: StatMeasures = measures { m in
+        m.girRecorded = 6
+        m.girHits = 3
+        m.greenHitLate = 1
+        m.firstPuttMRecorded = 4
+        m.firstPuttMSum = 21.5
+        m.firstPuttMRecordedGir = 3
+        m.firstPuttMSumGir = 16.5
+        m.metersMadeSum = 4.5
+        m.metersMadeHoles = 3
+        m.onePuttsUnmeasured = 1
+        m.chipGirHoles = 2
+        m.chipGirOnePutt = 1
+        m.chipGirPar5 = 1
+        m.chipGirPar5OnePutt = 1
+    }
+
+    func testProximityOnGirAveragesTheRecordedMetresAndOnlyThose() {
+        // 16.5 m over the THREE metre-recorded GIR holes, not over all six GIR
+        // answers: bucket-only holes are coverage, not zeroes.
+        assertRate(StatMeasuresMath.proximityOnGir(metresExample), 5.5, 16.5, 3)
+        assertRate(StatMeasuresMath.proximityOnGir(measures()), nil, 0, 0)
+    }
+
+    func testMetersMadePassesTheServerSumThroughWithoutReAddingTheHalfMetreCredit() {
+        // The worked example's two inside-1m one-putts carry no metres; the
+        // SERVER already priced them at 0.5 m each into `metersMadeSum`. The
+        // helper must return exactly that 1, not 2 — adding the credit again
+        // is the bug this test pins out.
+        XCTAssertEqual(StatMeasuresMath.metersMade(workedExample), 1)
+        XCTAssertEqual(StatMeasuresMath.metersMade(metresExample), 4.5)
+        XCTAssertEqual(StatMeasuresMath.metersMade(measures()), 0)
+    }
+
+    func testGreenAttemptsHitCountsGirAndHitLateOverTheResolvedDenominator() {
+        // 3 GIR + 1 hit-late over the 6 holes with a green answer.
+        assertRate(StatMeasuresMath.greenAttemptsHit(metresExample), 4.0 / 6.0, 4, 6)
+        // Without hit-late holes it degrades to plain GIR.
+        assertRate(StatMeasuresMath.greenAttemptsHit(workedExample), 0.6, 3, 5, accuracy: 1e-12)
+        assertRate(StatMeasuresMath.greenAttemptsHit(measures()), nil, 0, 0)
+    }
+
+    func testChipOnGirConvertsOverResolvedChipHolesWithItsParFiveBirdieSplit() {
+        assertRate(StatMeasuresMath.chipOnGirRate(metresExample), 0.5, 1, 2)
+        assertRate(StatMeasuresMath.chipOnGirPar5Birdie(metresExample), 1, 1, 1)
+        assertRate(StatMeasuresMath.chipOnGirRate(measures()), nil, 0, 0)
+        assertRate(StatMeasuresMath.chipOnGirPar5Birdie(measures()), nil, 0, 0)
+    }
+
+    func testTheMakeCurveFoldsSparsePerRoundRowsIntoOneAscendingPointPerMetre() {
+        let rows: [FirstPuttCurveRow] = [
+            // Round 1: two putts from 2 m (one dropped), a 0.5 m tap-in.
+            FirstPuttCurveRow(firstPuttM: 2, attempts: 2, onePutts: 1, puttsTotal: 3),
+            FirstPuttCurveRow(firstPuttM: 0.5, attempts: 1, onePutts: 1, puttsTotal: 1),
+            // Round 2: another 2 m attempt, and a 10 m three-putt.
+            FirstPuttCurveRow(firstPuttM: 2, attempts: 1, onePutts: 0, puttsTotal: 2),
+            FirstPuttCurveRow(firstPuttM: 10, attempts: 1, onePutts: 0, puttsTotal: 3),
+        ]
+        XCTAssertEqual(
+            StatMeasuresMath.firstPuttMakeCurve(rows),
+            [
+                FirstPuttCurvePoint(
+                    meters: 0.5, attempts: 1, onePutts: 1, avgPutts: Rate(value: 1, n: 1, d: 1)),
+                // The two rounds' 2 m rows sum BEFORE the rate forms: 5 over 3.
+                FirstPuttCurvePoint(
+                    meters: 2, attempts: 3, onePutts: 1,
+                    avgPutts: Rate(value: 5.0 / 3.0, n: 5, d: 3)),
+                FirstPuttCurvePoint(
+                    meters: 10, attempts: 1, onePutts: 0, avgPutts: Rate(value: 3, n: 3, d: 1)),
+            ])
+        // Sparse means sparse: unattempted metres get no point, and no rows
+        // means no curve — never a vocabulary of zeroes.
+        XCTAssertEqual(StatMeasuresMath.firstPuttMakeCurve(rows).map(\.meters), [0.5, 2, 10])
+        XCTAssertEqual(StatMeasuresMath.firstPuttMakeCurve([]), [])
     }
 }

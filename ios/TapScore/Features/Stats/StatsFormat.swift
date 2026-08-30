@@ -107,6 +107,22 @@ enum StatsFormat {
             "hole from the fairway", "holes from the fairway")
         static let inPlayHoles = SampleUnit("hole in play", "holes in play")
         static let troubleHoles = SampleUnit("hole from trouble", "holes from trouble")
+        /// The exact-metre cohorts (migration 064). `distances` counts the
+        /// CURVE'S ROWS — how many different metres the player has putted from —
+        /// which is a different sample from the putts themselves.
+        static let putts = SampleUnit.regular("putt")
+        static let distances = SampleUnit.regular("distance")
+        /// Proximity's own cohort. NOT plain `greens`: a green you hit without
+        /// tapping a metre is not in this average, and saying "24 greens" when
+        /// 31 were hit misstates which greens the number is over.
+        static let measuredGreens = SampleUnit(
+            "green hit with the metres recorded", "greens hit with the metres recorded")
+        /// Metres-made's cohort, and deliberately NOT worded "with the metres
+        /// recorded": the count includes the inside-1 m one-putts credited at a
+        /// flat half metre, which carry no recorded distance at all.
+        static let measuredOnePutts = SampleUnit(
+            "one-putt hole counted", "one-putt holes counted")
+
         static let par3 = SampleUnit.regular("par 3")
         static let par4 = SampleUnit.regular("par 4")
         static let par5 = SampleUnit.regular("par 5")

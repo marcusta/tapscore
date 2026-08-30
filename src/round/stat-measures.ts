@@ -336,6 +336,20 @@ export const ZERO_MEASURES: StatMeasures = Object.freeze({
         dblPenaltyApproach: 0,
         dblPenaltyShort: 0,
         dblPenaltyUnknown: 0,
+        // Migration 064: exact first-putt metres, the fifth green answer, and
+        // chip-on-GIR.
+        firstPuttMRecorded: 0,
+        firstPuttMSum: 0,
+        firstPuttMRecordedGir: 0,
+        firstPuttMSumGir: 0,
+        metersMadeSum: 0,
+        metersMadeHoles: 0,
+        onePuttsUnmeasured: 0,
+        greenHitLate: 0,
+        chipGirHoles: 0,
+        chipGirOnePutt: 0,
+        chipGirPar5: 0,
+        chipGirPar5OnePutt: 0,
 });
 
 /**
@@ -573,6 +587,18 @@ export function addMeasures(a: StatMeasures, b: StatMeasures): StatMeasures {
         dblPenaltyApproach: a.dblPenaltyApproach + b.dblPenaltyApproach,
         dblPenaltyShort: a.dblPenaltyShort + b.dblPenaltyShort,
         dblPenaltyUnknown: a.dblPenaltyUnknown + b.dblPenaltyUnknown,
+        firstPuttMRecorded: a.firstPuttMRecorded + b.firstPuttMRecorded,
+        firstPuttMSum: a.firstPuttMSum + b.firstPuttMSum,
+        firstPuttMRecordedGir: a.firstPuttMRecordedGir + b.firstPuttMRecordedGir,
+        firstPuttMSumGir: a.firstPuttMSumGir + b.firstPuttMSumGir,
+        metersMadeSum: a.metersMadeSum + b.metersMadeSum,
+        metersMadeHoles: a.metersMadeHoles + b.metersMadeHoles,
+        onePuttsUnmeasured: a.onePuttsUnmeasured + b.onePuttsUnmeasured,
+        greenHitLate: a.greenHitLate + b.greenHitLate,
+        chipGirHoles: a.chipGirHoles + b.chipGirHoles,
+        chipGirOnePutt: a.chipGirOnePutt + b.chipGirOnePutt,
+        chipGirPar5: a.chipGirPar5 + b.chipGirPar5,
+        chipGirPar5OnePutt: a.chipGirPar5OnePutt + b.chipGirPar5OnePutt,
     };
 }
 
@@ -1318,6 +1344,107 @@ export function difficultyMix(m: StatMeasures): ByDifficulty<Rate> {
     };
 }
 
+// --- Exact first-putt metres and the fifth green answer (migration 064) ---
+
+/**
+ * Average first-putt metres on greens hit — the feature's headline number
+ * (proposal §4, "total distans till hålet vid greenträff"). Over the GIR holes
+ * that recorded an exact metre, not over all GIR holes: a bucket-only hole has
+ * no metre to average and surfaces as coverage, never as an exclusion.
+ */
+export function proximityOnGir(m: StatMeasures): Rate {
+    return rate(m.firstPuttMSumGir, m.firstPuttMRecordedGir);
+}
+
+/**
+ * Metres of first putts holed, summed over one-putt holes. A pass-through:
+ * the SERVER already folds in the flat 0.5 m credit for an inside-1m one-putt
+ * without a metre (owner ruling, view 043's `meters_made_sum`), so adding it
+ * here again would double-count. Outer-bucket one-putts without metres stay
+ * out and show up in `m.onePuttsUnmeasured` as coverage.
+ */
+export function metersMade(m: StatMeasures): number {
+    return m.metersMadeSum;
+}
+
+/**
+ * Green attempts hit: GIR plus hit-late, over the holes where GIR resolved.
+ * Ball-striking accuracy separated from position — the 120 m third that nails
+ * the green stops reading as a miss. Coherent because a hit-late hole HAS
+ * `gir = 0` recorded (it is inside `girRecorded`) and `girHits` and
+ * `greenHitLate` are disjoint by the same derivation.
+ */
+export function greenAttemptsHit(m: StatMeasures): Rate {
+    return rate(m.girHits + m.greenHitLate, m.girRecorded);
+}
+
+/**
+ * Up-and-in rate on GIR holes with a recorded chip — the par-5 greenside chip
+ * that still made regulation. Denominator is GIR holes whose chip AND putts
+ * both resolved (view 043's `chip_gir_holes`); one putt or a chip-in counts as
+ * converted.
+ */
+export function chipOnGirRate(m: StatMeasures): Rate {
+    return rate(m.chipGirOnePutt, m.chipGirHoles);
+}
+
+/**
+ * The par-5 split of `chipOnGirRate`: greenside in two, chip, one putt — the
+ * up-and-down for BIRDIE conversion. Same resolved denominator, narrowed to
+ * par 5.
+ */
+export function chipOnGirPar5Birdie(m: StatMeasures): Rate {
+    return rate(m.chipGirPar5OnePutt, m.chipGirPar5);
+}
+
+/**
+ * One wire row of `v_player_first_putt_m_curve`: a (round, metre) cell of the
+ * long-format cross-tab (053 pattern). Key names match the server's curve
+ * endpoint; the type lives here so the shaping is testable before that
+ * endpoint ships.
+ */
+export interface FirstPuttCurveRow {
+    firstPuttM: number;
+    attempts: number;
+    onePutts: number;
+    puttsTotal: number;
+}
+
+/** One point of the make curve: everything the player did from exactly this metre. */
+export interface FirstPuttCurvePoint {
+    meters: number;
+    attempts: number;
+    onePutts: number;
+    /** Average putts from this metre — `rate(puttsTotal, attempts)`, never NaN. */
+    avgPutts: Rate;
+}
+
+/**
+ * Fold the per-round curve rows into one point per metre, ascending. SPARSE by
+ * design: a metre nobody attempted has no point — the renderer decides how to
+ * draw a gap, the math never invents a zero for it. Rows for the same metre
+ * across rounds sum before the rate forms, so the average weighs every attempt
+ * equally.
+ */
+export function firstPuttMakeCurve(rows: readonly FirstPuttCurveRow[]): FirstPuttCurvePoint[] {
+    const byMeters = new Map<number, { attempts: number; onePutts: number; puttsTotal: number }>();
+    for (const row of rows) {
+        const cell = byMeters.get(row.firstPuttM) ?? { attempts: 0, onePutts: 0, puttsTotal: 0 };
+        cell.attempts += row.attempts;
+        cell.onePutts += row.onePutts;
+        cell.puttsTotal += row.puttsTotal;
+        byMeters.set(row.firstPuttM, cell);
+    }
+    return [...byMeters.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([meters, cell]) => ({
+            meters,
+            attempts: cell.attempts,
+            onePutts: cell.onePutts,
+            avgPutts: rate(cell.puttsTotal, cell.attempts),
+        }));
+}
+
 // --- Scoring (always available — needs only the scorecard) ---
 
 export interface ByParGroup<T> {
@@ -1690,6 +1817,82 @@ export const EXPECTED_PUTTS_V1: Readonly<Record<PuttBucket, number>> = Object.fr
     '4_to_8m': 2.1,
     over_8m: 2.4,
 });
+
+/** One row of `EXPECTED_PUTTS_V2`: a refine-vocabulary metre and its expected putts. */
+export interface ExpectedPuttsAtMeters {
+    readonly meters: number;
+    readonly putts: number;
+}
+
+/**
+ * Expected putts at each exact first-putt metre value, v2 — the refinement
+ * cohort's twin of `EXPECTED_PUTTS_V1`, at exactly the 19-value refine
+ * vocabulary ("20+" stores 20). v1 stays frozen and keeps pricing bucket-only
+ * holes; this table prices the holes that carry a metre.
+ *
+ * DERIVATION, reproducible by hand: piecewise-linear interpolation through the
+ * five frozen v1 anchors, each placed at its bucket's representative distance —
+ * the midpoints 0.5, 1.5, 3 and 6 m for the four closed buckets, and 12 m for
+ * the open `over_8m` bucket, which puts the 6→12 segment on the 0.05 putts/m
+ * slope the 4–8 m data flattens to. Below 0.5 m the segment runs to
+ * (0 m, 1.00) — a tap-in cannot take less than one putt; above 12 m the last
+ * slope (0.05 putts/m) extends to 20 m. Every value rounded to two decimals,
+ * which preserves monotonicity, and the test suites assert both the anchors
+ * and the monotonicity rather than trusting this comment.
+ *
+ * FROZEN on v1's terms: tune by adding a v3, never by editing these numbers.
+ */
+export const EXPECTED_PUTTS_V2: readonly ExpectedPuttsAtMeters[] = Object.freeze([
+    Object.freeze({ meters: 0.3, putts: 1.03 }),
+    Object.freeze({ meters: 0.5, putts: 1.05 }),
+    Object.freeze({ meters: 0.8, putts: 1.17 }),
+    Object.freeze({ meters: 1, putts: 1.25 }),
+    Object.freeze({ meters: 1.5, putts: 1.45 }),
+    Object.freeze({ meters: 2, putts: 1.58 }),
+    Object.freeze({ meters: 2.5, putts: 1.72 }),
+    Object.freeze({ meters: 3, putts: 1.85 }),
+    Object.freeze({ meters: 3.5, putts: 1.89 }),
+    Object.freeze({ meters: 4, putts: 1.93 }),
+    Object.freeze({ meters: 5, putts: 2.02 }),
+    Object.freeze({ meters: 6, putts: 2.1 }),
+    Object.freeze({ meters: 7, putts: 2.15 }),
+    Object.freeze({ meters: 8, putts: 2.2 }),
+    Object.freeze({ meters: 10, putts: 2.3 }),
+    Object.freeze({ meters: 12, putts: 2.4 }),
+    Object.freeze({ meters: 14, putts: 2.5 }),
+    Object.freeze({ meters: 16, putts: 2.6 }),
+    Object.freeze({ meters: 20, putts: 2.8 }),
+]);
+
+/**
+ * Expected putts at an exact metre value, off `EXPECTED_PUTTS_V2`.
+ *
+ * The vocabulary is closed, so a stored value always matches a row exactly.
+ * Postel for anything else (a hand-edited event, a future vocabulary): the
+ * NEAREST vocabulary value answers, a tie resolving to the shorter putt — a
+ * lookup never excludes a hole.
+ */
+export function expectedPuttsV2(meters: number): number {
+    let best = EXPECTED_PUTTS_V2[0]!;
+    for (const entry of EXPECTED_PUTTS_V2) {
+        if (Math.abs(entry.meters - meters) < Math.abs(best.meters - meters)) best = entry;
+    }
+    return best.putts;
+}
+
+/**
+ * The fine bucket that owns a metre value. Each bucket owns its UPPER edge
+ * (proposal §1): 1 m refines `1_to_2m`, 2 m still does, 2.5 m is the first
+ * `2_to_4m` chip, and so on. The one implementation both the SG refinement and
+ * the tests use — re-inlining the edges is how the two would drift.
+ */
+export function firstPuttBucketForMeters(meters: number): PuttBucket {
+    if (meters < 1) return 'inside_1m';
+    if (meters <= 2) return '1_to_2m';
+    if (meters <= 4) return '2_to_4m';
+    if (meters <= 8) return '4_to_8m';
+    return 'over_8m';
+}
 
 /**
  * Expected putts remaining after an AVERAGE short-game shot, v1. The baseline
@@ -2138,6 +2341,22 @@ export const STROKES_LOST_COMPONENTS: readonly StrokesLostComponent[] = [
     'penalties',
 ];
 
+/**
+ * One cell of the attribution cohort's exact-metre first putts: how many
+ * cohort greens-hit arrived at exactly this refine-vocabulary metre. The
+ * measures carry only the five bucket counts, so the metre breakdown enters
+ * `strokesLostV3` as its own input; a caller that has none passes nothing and
+ * gets the pure bucket pricing. Every hole counted here is ALREADY inside its
+ * bucket's `attGirFirstPutt*` count — the cell adjusts the price, it never
+ * adds a hole.
+ */
+export interface SgGirArrivalMetres {
+    /** One of the 19 refine values ("20+" stores 20). */
+    meters: number;
+    /** Attribution-cohort greens hit whose first putt recorded exactly this metre. */
+    holes: number;
+}
+
 export interface StrokesLostCoverage {
     /** Holes in the attribution cohort. */
     attributed: number;
@@ -2175,8 +2394,9 @@ export interface StrokesLost {
  * every input is a count or a sum, so the terms are all additive).
  *
  * Per attributable hole, with `S` = strokes, `U` = putts, `X` = penalty strokes,
- * one modeled tee stroke on par 4/5 and `C = COALESCE(short_game_strokes, 1)`
- * short-game strokes on a green miss:
+ * one modeled tee stroke on par 4/5 and `C` = effective short-game strokes —
+ * `COALESCE(short_game_strokes, 1)` on a green miss, `COALESCE(short_game_strokes, 0)`
+ * on an on-green hole with a recorded short game (migration 064):
  *
  *   tee       = 1 + eAfterTee[par][result] − eHole[par]                  (par 4/5)
  *   approach  = (S − U − X − teeStroke − C) + E_arrival − E_ref
@@ -2206,6 +2426,7 @@ export function strokesLostV3(
     expected: Readonly<Record<PuttBucket, number>> = EXPECTED_PUTTS_V1,
     chipOutcome: Readonly<{ inside2m: number; outside2m: number }> = CHIP_OUTCOME_EXPECTED_PUTTS_V1,
     chipBaseline: Readonly<ChipExpectedPutts> = CHIP_EXPECTED_PUTTS_V2,
+    girArrivalMetres: readonly SgGirArrivalMetres[] = [],
 ): StrokesLost {
     // The cohort, counted two ways. The par-4/5 legs come from the STRICT tee
     // cells (which partition the par-4/5 cohort) rather than from
@@ -2232,7 +2453,12 @@ export function strokesLostV3(
 
     /** One modeled tee stroke per par-4/5 hole. A par 3's tee shot IS its approach. */
     const teeStrokes = cohortPar4 + cohortPar5;
-    /** Σ COALESCE(short_game_strokes, 1) over the miss cohort. */
+    /**
+     * Σ effective short-game strokes: COALESCE(strokes, 1) over the miss
+     * cohort, plus recorded chip strokes on on-green holes (default 0 there —
+     * migration 064). Approach subtracts and shortGame adds the same sum, so
+     * an on-green chip prices into shortGame without touching the telescope.
+     */
     const sumC =
         m.attSgStrokesEffectiveStandard +
         m.attSgStrokesEffectiveHard +
@@ -2256,12 +2482,25 @@ export function strokesLostV3(
     // A holed approach (or an ace) arrives at 0 expected putts, so it needs no
     // term of its own here — but it IS in the cohort, deliberately: dropping the
     // branch's best outcome would bias approach by exactly its triumphs.
-    const sumEGirArrival =
+    let sumEGirArrival =
         m.attGirFirstPuttInside1m * expected.inside_1m +
         m.attGirFirstPutt1To2m * expected['1_to_2m'] +
         m.attGirFirstPutt2To4m * expected['2_to_4m'] +
         m.attGirFirstPutt4To8m * expected['4_to_8m'] +
         m.attGirFirstPuttOver8m * expected.over_8m;
+
+    // Metre refinement (migration 064): a cohort hole with an exact metre swaps
+    // its bucket anchor for the v2 value at that metre; bucket-only holes keep
+    // the anchor. `sumEGirArrival` enters approach with + and putting with −,
+    // so the swap moves strokes between those two legs and the telescope closes
+    // whatever the refinement says. Against a non-default `expected` tier the
+    // same expression is a v2-SHAPED adjustment on that tier's own anchor: the
+    // level stays the tier's, only the within-bucket resolution is new.
+    for (const cell of girArrivalMetres) {
+        sumEGirArrival +=
+            cell.holes *
+            (expectedPuttsV2(cell.meters) - expected[firstPuttBucketForMeters(cell.meters)]);
+    }
 
     // Where the chip left the ball. A chip-in leaves nothing, hence no term.
     const sumEChipOutcome =
@@ -2320,8 +2559,16 @@ export function strokesLostV3(
 export function strokesLostForBundle(
     m: StatMeasures,
     bundle: SgBaselineBundle = DEFAULT_SG_BASELINE,
+    girArrivalMetres: readonly SgGirArrivalMetres[] = [],
 ): StrokesLost {
-    return strokesLostV3(m, bundle.tables, bundle.expected, bundle.chipOutcome, bundle.chipBaseline);
+    return strokesLostV3(
+        m,
+        bundle.tables,
+        bundle.expected,
+        bundle.chipOutcome,
+        bundle.chipBaseline,
+        girArrivalMetres,
+    );
 }
 
 /**

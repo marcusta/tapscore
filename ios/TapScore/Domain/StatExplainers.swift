@@ -35,7 +35,8 @@ enum StatExplainers {
         .greenMissDir: """
             Which way you missed, seen from where you played the approach. Long \
             is past the flag, short is in front of it. Left and right are \
-            exactly that.
+            exactly that. On green means the ball reached the green, just one \
+            shot too late to count as hit.
             """,
         .shortGameDifficulty: """
             Standard is a clean lie with green to work with. Hard is anything \
@@ -51,6 +52,11 @@ enum StatExplainers {
             How far the first putt was, in metres. If you holed out from off \
             the green there was no first putt, so leave this alone and set \
             putts to 0.
+            """,
+        .firstPuttM: """
+            The exact distance, if you want it. Pick the closest number inside \
+            the range you chose above. Optional — the range alone is a full \
+            answer.
             """,
         .putts: """
             Putts taken on the green, counting the one that went in. 0 means \

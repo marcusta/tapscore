@@ -141,6 +141,48 @@ struct ExpectedPuttsTable: Equatable, Sendable {
     }
 }
 
+/// One row of `expectedPuttsV2`: a refine-vocabulary metre and its expected putts.
+struct ExpectedPuttsAtMeters: Equatable, Sendable {
+    var meters: Double
+    var putts: Double
+}
+
+// MARK: - Exact first-putt metres (migration 064)
+
+/// One cell of the attribution cohort's exact-metre first putts: how many
+/// cohort greens-hit arrived at exactly this refine-vocabulary metre. The
+/// measures carry only the five bucket counts, so the metre breakdown enters
+/// `strokesLostV3` as its own input; a caller that has none passes nothing and
+/// gets the pure bucket pricing. Every hole counted here is ALREADY inside its
+/// bucket's `attGirFirstPutt*` count — the cell adjusts the price, it never
+/// adds a hole.
+struct SgGirArrivalMetres: Equatable, Sendable {
+    /// One of the 19 refine values ("20+" stores 20).
+    var meters: Double
+    /// Attribution-cohort greens hit whose first putt recorded exactly this metre.
+    var holes: Double
+}
+
+/// One wire row of `v_player_first_putt_m_curve`: a (round, metre) cell of the
+/// long-format cross-tab (053 pattern). Key names match the server's curve
+/// endpoint; the type lives here so the shaping is testable before that
+/// endpoint ships.
+struct FirstPuttCurveRow: Equatable, Sendable {
+    var firstPuttM: Double
+    var attempts: Double
+    var onePutts: Double
+    var puttsTotal: Double
+}
+
+/// One point of the make curve: everything the player did from exactly this metre.
+struct FirstPuttCurvePoint: Equatable, Sendable {
+    var meters: Double
+    var attempts: Double
+    var onePutts: Double
+    /// Average putts from this metre — `rate(puttsTotal, attempts)`, never NaN.
+    var avgPutts: Rate
+}
+
 /// What a chip is observed to have left — the whole resolution the measure set
 /// has for short-game proximity.
 struct ChipOutcomeExpectedPutts: Equatable, Sendable {
@@ -897,7 +939,19 @@ enum StatMeasuresMath {
         dblPenaltyTee: 0,
         dblPenaltyApproach: 0,
         dblPenaltyShort: 0,
-        dblPenaltyUnknown: 0
+        dblPenaltyUnknown: 0,
+        firstPuttMRecorded: 0,
+        firstPuttMSum: 0,
+        firstPuttMRecordedGir: 0,
+        firstPuttMSumGir: 0,
+        metersMadeSum: 0,
+        metersMadeHoles: 0,
+        onePuttsUnmeasured: 0,
+        greenHitLate: 0,
+        chipGirHoles: 0,
+        chipGirOnePutt: 0,
+        chipGirPar5: 0,
+        chipGirPar5OnePutt: 0
     )
 
     /// Field-by-field addition. Written out rather than iterated on purpose: the
@@ -1138,7 +1192,19 @@ enum StatMeasuresMath {
             dblPenaltyTee: a.dblPenaltyTee + b.dblPenaltyTee,
             dblPenaltyApproach: a.dblPenaltyApproach + b.dblPenaltyApproach,
             dblPenaltyShort: a.dblPenaltyShort + b.dblPenaltyShort,
-            dblPenaltyUnknown: a.dblPenaltyUnknown + b.dblPenaltyUnknown
+            dblPenaltyUnknown: a.dblPenaltyUnknown + b.dblPenaltyUnknown,
+            firstPuttMRecorded: a.firstPuttMRecorded + b.firstPuttMRecorded,
+            firstPuttMSum: a.firstPuttMSum + b.firstPuttMSum,
+            firstPuttMRecordedGir: a.firstPuttMRecordedGir + b.firstPuttMRecordedGir,
+            firstPuttMSumGir: a.firstPuttMSumGir + b.firstPuttMSumGir,
+            metersMadeSum: a.metersMadeSum + b.metersMadeSum,
+            metersMadeHoles: a.metersMadeHoles + b.metersMadeHoles,
+            onePuttsUnmeasured: a.onePuttsUnmeasured + b.onePuttsUnmeasured,
+            greenHitLate: a.greenHitLate + b.greenHitLate,
+            chipGirHoles: a.chipGirHoles + b.chipGirHoles,
+            chipGirOnePutt: a.chipGirOnePutt + b.chipGirOnePutt,
+            chipGirPar5: a.chipGirPar5 + b.chipGirPar5,
+            chipGirPar5OnePutt: a.chipGirPar5OnePutt + b.chipGirPar5OnePutt
         )
     }
 
@@ -1665,6 +1731,75 @@ enum StatMeasuresMath {
             short: rate(m.penaltiesShort, m.penaltySourceRecorded))
     }
 
+    // MARK: Exact first-putt metres and the fifth green answer (migration 064)
+
+    /// Average first-putt metres on greens hit — the feature's headline number
+    /// (proposal §4, "total distans till hålet vid greenträff"). Over the GIR
+    /// holes that recorded an exact metre, not over all GIR holes: a
+    /// bucket-only hole has no metre to average and surfaces as coverage,
+    /// never as an exclusion.
+    static func proximityOnGir(_ m: StatMeasures) -> Rate {
+        rate(m.firstPuttMSumGir, m.firstPuttMRecordedGir)
+    }
+
+    /// Metres of first putts holed, summed over one-putt holes. A pass-through:
+    /// the SERVER already folds in the flat 0.5 m credit for an inside-1m
+    /// one-putt without a metre (owner ruling, view 043's `meters_made_sum`),
+    /// so adding it here again would double-count. Outer-bucket one-putts
+    /// without metres stay out and show up in `m.onePuttsUnmeasured` as
+    /// coverage.
+    static func metersMade(_ m: StatMeasures) -> Double {
+        m.metersMadeSum
+    }
+
+    /// Green attempts hit: GIR plus hit-late, over the holes where GIR
+    /// resolved. Ball-striking accuracy separated from position — the 120 m
+    /// third that nails the green stops reading as a miss. Coherent because a
+    /// hit-late hole HAS `gir = 0` recorded (it is inside `girRecorded`) and
+    /// `girHits` and `greenHitLate` are disjoint by the same derivation.
+    static func greenAttemptsHit(_ m: StatMeasures) -> Rate {
+        rate(m.girHits + m.greenHitLate, m.girRecorded)
+    }
+
+    /// Up-and-in rate on GIR holes with a recorded chip — the par-5 greenside
+    /// chip that still made regulation. Denominator is GIR holes whose chip
+    /// AND putts both resolved (view 043's `chip_gir_holes`); one putt or a
+    /// chip-in counts as converted.
+    static func chipOnGirRate(_ m: StatMeasures) -> Rate {
+        rate(m.chipGirOnePutt, m.chipGirHoles)
+    }
+
+    /// The par-5 split of `chipOnGirRate`: greenside in two, chip, one putt —
+    /// the up-and-down for BIRDIE conversion. Same resolved denominator,
+    /// narrowed to par 5.
+    static func chipOnGirPar5Birdie(_ m: StatMeasures) -> Rate {
+        rate(m.chipGirPar5OnePutt, m.chipGirPar5)
+    }
+
+    /// Fold the per-round curve rows into one point per metre, ascending.
+    /// SPARSE by design: a metre nobody attempted has no point — the renderer
+    /// decides how to draw a gap, the math never invents a zero for it. Rows
+    /// for the same metre across rounds sum before the rate forms, so the
+    /// average weighs every attempt equally.
+    static func firstPuttMakeCurve(_ rows: [FirstPuttCurveRow]) -> [FirstPuttCurvePoint] {
+        var byMeters: [Double: (attempts: Double, onePutts: Double, puttsTotal: Double)] = [:]
+        for row in rows {
+            var cell = byMeters[row.firstPuttM] ?? (0, 0, 0)
+            cell.attempts += row.attempts
+            cell.onePutts += row.onePutts
+            cell.puttsTotal += row.puttsTotal
+            byMeters[row.firstPuttM] = cell
+        }
+        return byMeters.keys.sorted().map { meters in
+            let cell = byMeters[meters]!
+            return FirstPuttCurvePoint(
+                meters: meters,
+                attempts: cell.attempts,
+                onePutts: cell.onePutts,
+                avgPutts: rate(cell.puttsTotal, cell.attempts))
+        }
+    }
+
     // MARK: Scoring (always available — needs only the scorecard)
 
     /// Average strokes vs par, split by par group. The groups are the server's
@@ -1697,6 +1832,71 @@ enum StatMeasuresMath {
     /// deliberately, never by editing these numbers.
     static let expectedPuttsV1 = ExpectedPuttsTable(
         inside1m: 1.05, oneTo2m: 1.45, twoTo4m: 1.85, fourTo8m: 2.10, over8m: 2.40)
+
+    /// Expected putts at each exact first-putt metre value, v2 — the refinement
+    /// cohort's twin of `expectedPuttsV1`, at exactly the 19-value refine
+    /// vocabulary ("20+" stores 20). v1 stays frozen and keeps pricing
+    /// bucket-only holes; this table prices the holes that carry a metre.
+    ///
+    /// DERIVATION, reproducible by hand: piecewise-linear interpolation through
+    /// the five frozen v1 anchors, each placed at its bucket's representative
+    /// distance — the midpoints 0.5, 1.5, 3 and 6 m for the four closed
+    /// buckets, and 12 m for the open `over_8m` bucket, which puts the 6→12
+    /// segment on the 0.05 putts/m slope the 4–8 m data flattens to. Below
+    /// 0.5 m the segment runs to (0 m, 1.00) — a tap-in cannot take less than
+    /// one putt; above 12 m the last slope (0.05 putts/m) extends to 20 m.
+    /// Every value rounded to two decimals, which preserves monotonicity, and
+    /// the test suites assert both the anchors and the monotonicity rather than
+    /// trusting this comment.
+    ///
+    /// FROZEN on v1's terms: tune by adding a v3, never by editing these numbers.
+    static let expectedPuttsV2: [ExpectedPuttsAtMeters] = [
+        ExpectedPuttsAtMeters(meters: 0.3, putts: 1.03),
+        ExpectedPuttsAtMeters(meters: 0.5, putts: 1.05),
+        ExpectedPuttsAtMeters(meters: 0.8, putts: 1.17),
+        ExpectedPuttsAtMeters(meters: 1, putts: 1.25),
+        ExpectedPuttsAtMeters(meters: 1.5, putts: 1.45),
+        ExpectedPuttsAtMeters(meters: 2, putts: 1.58),
+        ExpectedPuttsAtMeters(meters: 2.5, putts: 1.72),
+        ExpectedPuttsAtMeters(meters: 3, putts: 1.85),
+        ExpectedPuttsAtMeters(meters: 3.5, putts: 1.89),
+        ExpectedPuttsAtMeters(meters: 4, putts: 1.93),
+        ExpectedPuttsAtMeters(meters: 5, putts: 2.02),
+        ExpectedPuttsAtMeters(meters: 6, putts: 2.1),
+        ExpectedPuttsAtMeters(meters: 7, putts: 2.15),
+        ExpectedPuttsAtMeters(meters: 8, putts: 2.2),
+        ExpectedPuttsAtMeters(meters: 10, putts: 2.3),
+        ExpectedPuttsAtMeters(meters: 12, putts: 2.4),
+        ExpectedPuttsAtMeters(meters: 14, putts: 2.5),
+        ExpectedPuttsAtMeters(meters: 16, putts: 2.6),
+        ExpectedPuttsAtMeters(meters: 20, putts: 2.8),
+    ]
+
+    /// Expected putts at an exact metre value, off `expectedPuttsV2`.
+    ///
+    /// The vocabulary is closed, so a stored value always matches a row
+    /// exactly. Postel for anything else (a hand-edited event, a future
+    /// vocabulary): the NEAREST vocabulary value answers, a tie resolving to
+    /// the shorter putt — a lookup never excludes a hole.
+    static func expectedPuttsV2(at meters: Double) -> Double {
+        var best = expectedPuttsV2[0]
+        for entry in expectedPuttsV2 where abs(entry.meters - meters) < abs(best.meters - meters) {
+            best = entry
+        }
+        return best.putts
+    }
+
+    /// The fine bucket that owns a metre value. Each bucket owns its UPPER edge
+    /// (proposal §1): 1 m refines `1_to_2m`, 2 m still does, 2.5 m is the first
+    /// `2_to_4m` chip, and so on. The one implementation both the SG refinement
+    /// and the tests use — re-inlining the edges is how the two would drift.
+    static func firstPuttBucket(forMeters meters: Double) -> PuttBucket {
+        if meters < 1 { return .inside1m }
+        if meters <= 2 { return .oneTo2m }
+        if meters <= 4 { return .twoTo4m }
+        if meters <= 8 { return .fourTo8m }
+        return .over8m
+    }
 
     /// Expected putts remaining after an AVERAGE short-game shot, v1. The
     /// baseline a chip is scored against: leave it closer than this and short
@@ -1776,7 +1976,8 @@ enum StatMeasuresMath {
         tables: SgTables = SgTablesV1.tables,
         expected: ExpectedPuttsTable = expectedPuttsV1,
         chipExpected: ChipOutcomeExpectedPutts = chipOutcomeExpectedPuttsV1,
-        chipBaseline: ChipExpectedPutts = chipExpectedPuttsV2
+        chipBaseline: ChipExpectedPutts = chipExpectedPuttsV2,
+        girArrivalMetres: [SgGirArrivalMetres] = []
     ) -> StrokesLost {
         let cohortPar3 = m.attHolesPar3Gir + m.attHolesPar3Miss
         let cohortPar4 = m.attFairwayPar4 + m.attInPlayPar4 + m.attTroublePar4
@@ -1815,6 +2016,11 @@ enum StatMeasuresMath {
         // there are — the telescope survives the third leg, and would survive a
         // fourth. What does NOT survive is a leg wired into `att_strokes` but
         // not into `sumC`.
+        //
+        // Since migration 064 the effective legs also carry recorded chip
+        // strokes on ON-GREEN holes (default 0 there, 1 on a miss): approach
+        // subtracts and shortGame adds the same sum, so an on-green chip moves
+        // between the two terms without touching the telescope.
         let sumC =
             m.attSgStrokesEffectiveStandard + m.attSgStrokesEffectiveHard
             + m.attSgStrokesEffectiveBunker
@@ -1828,13 +2034,28 @@ enum StatMeasuresMath {
         /// shot begins: after the tee on par 4/5, from the tee itself on par 3.
         let sumERef = sumEAfterTee + cohortPar3 * eHole(3)
 
-        let sumEGirArrival =
+        var sumEGirArrival =
             m.attGirFirstPuttInside1m * expected.inside1m
             + m.attGirFirstPutt1To2m * expected.oneTo2m
             + m.attGirFirstPutt2To4m * expected.twoTo4m
             + m.attGirFirstPutt4To8m * expected.fourTo8m
             + m.attGirFirstPuttOver8m * expected.over8m
         // A green hit and holed leaves nothing to putt: + attGirHoled × 0.
+
+        // Metre refinement (migration 064): a cohort hole with an exact metre
+        // swaps its bucket anchor for the v2 value at that metre; bucket-only
+        // holes keep the anchor. `sumEGirArrival` enters approach with + and
+        // putting with −, so the swap moves strokes between those two legs and
+        // the telescope closes whatever the refinement says. Against a
+        // non-default `expected` tier the same expression is a v2-SHAPED
+        // adjustment on that tier's own anchor: the level stays the tier's,
+        // only the within-bucket resolution is new.
+        for cell in girArrivalMetres {
+            sumEGirArrival +=
+                cell.holes
+                * (expectedPuttsV2(at: cell.meters)
+                    - expected[firstPuttBucket(forMeters: cell.meters)])
+        }
 
         let sumEChipOutcome =
             (m.attChipInside2mStandard + m.attChipInside2mHard + m.attChipInside2mBunker)
@@ -1883,10 +2104,14 @@ enum StatMeasuresMath {
     /// The four tables of a cohort are only ever right together, so this is the
     /// call every model makes: passing a bundle cannot half-apply a tier the way
     /// four independent arguments can.
-    static func strokesLostV3(_ m: StatMeasures, baseline: SgBaselineBundle) -> StrokesLost {
+    static func strokesLostV3(
+        _ m: StatMeasures, baseline: SgBaselineBundle,
+        girArrivalMetres: [SgGirArrivalMetres] = []
+    ) -> StrokesLost {
         strokesLostV3(
             m, tables: baseline.tables, expected: baseline.expected,
-            chipExpected: baseline.chipExpected, chipBaseline: baseline.chipBaseline)
+            chipExpected: baseline.chipExpected, chipBaseline: baseline.chipBaseline,
+            girArrivalMetres: girArrivalMetres)
     }
 
     // MARK: Per-18 normalization

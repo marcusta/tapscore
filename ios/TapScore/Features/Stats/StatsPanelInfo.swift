@@ -79,6 +79,20 @@ enum StatsPanelInfo {
         ])
     }
 
+    /// The curve's sample, and the one sentence on this sheet that has to say
+    /// the window does not apply to it.
+    ///
+    /// The curve endpoint answers over ALL history — there is no round key on
+    /// the wire to select by — so a reader who has just set "Last 10" would
+    /// otherwise read these bars as ten rounds' putting.
+    private static func curveSample(_ rows: [StatsPuttingPanel.CurveRow]) -> String? {
+        let attempts = rows.reduce(0) { $0 + $1.made.d }
+        guard attempts > 0 else { return nil }
+        return "Measured over \(StatsFormat.quantity(attempts, .putts)) from "
+            + "\(StatsFormat.quantity(Double(rows.count), .distances)), across every round you "
+            + "recorded an exact distance in \u{2014} this group is not narrowed by the window."
+    }
+
     /// The sheet's cards for one module card, in reading order.
     ///
     /// Empty for a panel the window has no data for — the view then omits the
@@ -127,7 +141,19 @@ enum StatsPanelInfo {
             ]
         case .approach:
             guard let p = model.approach else { return [] }
-            return [
+            var out: [StatsInfoCard] = []
+            // Same gate as the rows: the pair only exists once a green has been
+            // answered `On green`, and a card explaining rows that are not on
+            // the screen is a card about somebody else's data.
+            if p.greenHitLate > 0 {
+                out.append(
+                    card(
+                        "greenAttemptsHit", StatsCopy.greenAttemptsHead,
+                        body(
+                            StatsCopy.greenAttemptsHit,
+                            measuredOver(p.greenAttemptsHit.d, .holes))))
+            }
+            out.append(contentsOf: [
                 card(
                     "greenMiss", "Where you miss the green",
                     body(StatsCopy.greenMiss, measuredOver(p.greenMissRecorded, .holes))),
@@ -157,10 +183,35 @@ enum StatsPanelInfo {
                     body(
                         StatsCopy.missedGreenTax,
                         measured(StatsFormat.missedGreenTaxSample(p.costOfMissedGreen)))),
-            ]
+            ])
+            return out
         case .putting:
             guard let p = model.putting else { return [] }
-            return [
+            var out: [StatsInfoCard] = []
+            if p.proximityOnGir.d > 0 {
+                out.append(
+                    card(
+                        "proximityOnGir", StatsCopy.proximityOnGirTitle,
+                        body(
+                            StatsCopy.proximityOnGir,
+                            measuredOver(p.proximityOnGir.d, .measuredGreens))))
+            }
+            if p.metersMadeHoles > 0 {
+                out.append(
+                    card(
+                        "metersMade", StatsCopy.metersMadeTitle,
+                        body(
+                            StatsCopy.metersMade,
+                            measuredOver(p.metersMadeHoles, .measuredOnePutts),
+                            StatsCopy.metersMadeUnmeasured(p.onePuttsUnmeasured))))
+            }
+            if !p.makeCurve.isEmpty {
+                out.append(
+                    card(
+                        "makeCurve", StatsCopy.makeCurveHead,
+                        body(StatsCopy.makeCurve, curveSample(p.makeCurve))))
+            }
+            out.append(contentsOf: [
                 card(
                     "firstPuttSpread", "First putt, all holes",
                     body(
@@ -193,11 +244,12 @@ enum StatsPanelInfo {
                     body(
                         StatsCopy.puttsByPar,
                         measured(StatsFormat.byParSample(p.puttsPerHoleByPar)))),
-            ]
+            ])
+            return out
         case .shortGame:
             guard let p = model.shortGame else { return [] }
             let attempts = p.scramble.standard.d + p.scramble.hard.d + p.scramble.bunker.d
-            return [
+            var out: [StatsInfoCard] = [
                 // Five rows, five cards. This used to be ONE card that opened
                 // "Scrambling" and then ran four unrelated definitions together,
                 // which put the meaning of "Sand save" — the app's own
@@ -247,6 +299,19 @@ enum StatsPanelInfo {
                 // card is the sentence alone.
                 card("chipIns", "Chip-ins", StatsCopy.chipIns),
             ]
+            if p.chipOnGir.d > 0 {
+                out.append(
+                    card(
+                        "chipOnGir", StatsCopy.chipOnGirHead,
+                        body(
+                            StatsCopy.chipOnGir,
+                            // The par-5 row's sentence only when the row is on
+                            // screen: a card explaining a bar nobody can see is
+                            // a card about somebody else's data.
+                            p.chipOnGirPar5Birdie.d > 0 ? StatsCopy.chipOnGirPar5 : nil,
+                            measuredOver(p.chipOnGir.d, .holes))))
+            }
+            return out
         case .scoring:
             guard let p = model.scoring else { return [] }
             return [

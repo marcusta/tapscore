@@ -52,6 +52,11 @@ final class StatsPanelViewsTests: XCTestCase {
         block(blocks, id)?.share ?? nil
     }
 
+    /// The second value column: the ladder's cost, the curve's average putts.
+    private func cost(_ blocks: [StatsBlock], _ id: String) -> String? {
+        block(blocks, id)?.cost ?? nil
+    }
+
     // MARK: - 1. The two-case policy, on a bar
 
     /// One recorded tee shot used to draw nothing at all — the retired thin gate
@@ -128,16 +133,19 @@ final class StatsPanelViewsTests: XCTestCase {
 
     /// No block kind carries an explainer sentence any more. The `StatsBlock`
     /// enum has no `note` case at all, so this walks the rendered vocabulary and
-    /// pins it to the eight kinds the view has templates for.
+    /// pins it to the nine kinds the view has templates for.
     func testThePanelVocabularyIsClosedAndHoldsNoNoteBlock() {
-        let model = Self.windowWModel()
+        let model = metresModel()
         let kinds = Set(
             StatsPanelID.allCases.flatMap { StatsPanelsView.blocks($0, model).map(\.kind) })
 
         XCTAssertFalse(kinds.contains("note"))
         XCTAssertTrue(
             kinds.isSubset(
-                of: ["subhead", "split", "fan", "compass", "bar", "rung", "columns", "figure"]),
+                of: [
+                    "subhead", "split", "fan", "compass", "bar", "rung", "curve", "columns",
+                    "figure",
+                ]),
             "unexpected block kinds: \(kinds)")
     }
 
@@ -273,11 +281,13 @@ final class StatsPanelViewsTests: XCTestCase {
 
     private func puttingPanel(
         baseline: SgBaselineBundle = SgBaselines.hcp12,
+        curve: [FirstPuttCurveRow] = [],
         _ mutate: (inout StatMeasures) -> Void = { _ in }
     ) -> StatsPuttingPanel {
         var m = Self.windowW()
         mutate(&m)
-        guard let panel = StatsDashboardModel.puttingPanel(m, baseline: baseline) else {
+        guard let panel = StatsDashboardModel.puttingPanel(m, baseline: baseline, curve: curve)
+        else {
             fatalError("fixture has puttsRecorded > 0, panel cannot be nil")
         }
         return panel
@@ -1066,6 +1076,263 @@ final class StatsPanelViewsTests: XCTestCase {
         for id in StatsPanelID.allCases {
             let blockIDs = StatsPanelsView.blocks(id, model).map(\.id)
             XCTAssertEqual(Set(blockIDs).count, blockIDs.count, "\(id.rawValue) has a duplicate id")
+        }
+    }
+
+    // MARK: - 9. Exact first-putt metres (migration 064)
+
+    /// Three distances actually putted from, with eight metres of nothing
+    /// between the last two. The gap is the point: the curve is sparse.
+    private func curveRows() -> [FirstPuttCurveRow] {
+        [
+            FirstPuttCurveRow(firstPuttM: 1, attempts: 10, onePutts: 8, puttsTotal: 12),
+            FirstPuttCurveRow(firstPuttM: 3, attempts: 6, onePutts: 2, puttsTotal: 10),
+            FirstPuttCurveRow(firstPuttM: 12, attempts: 2, onePutts: 0, puttsTotal: 5),
+        ]
+    }
+
+    /// Window W plus the exact-metre answers, on every panel that reads them.
+    private func metresModel() -> StatsDashboardModel {
+        var m = Self.windowW()
+        m.firstPuttMRecordedGir = 18
+        m.firstPuttMSumGir = 63
+        m.metersMadeSum = 24.5
+        m.metersMadeHoles = 14
+        m.onePuttsUnmeasured = 3
+        m.greenHitLate = 4
+        m.chipGirHoles = 10
+        m.chipGirOnePutt = 6
+        m.chipGirPar5 = 4
+        m.chipGirPar5OnePutt = 1
+        var model = Self.windowWModel()
+        model.totals = m
+        model.approach = StatsDashboardModel.approachPanel(m)
+        model.putting = StatsDashboardModel.puttingPanel(
+            m, baseline: SgBaselines.hcp12, curve: curveRows())
+        model.shortGame = StatsDashboardModel.shortGamePanel(m)
+        return model
+    }
+
+    /// The owner's figure leads the OPEN putting card: it is a distance, and
+    /// nothing else on this screen is one. The collapsed headline is untouched.
+    func testTheExactMetreFiguresLeadThePuttingCard() {
+        let blocks = StatsPanelsView.puttingBlocks(
+            puttingPanel {
+                $0.firstPuttMRecordedGir = 18
+                $0.firstPuttMSumGir = 63
+                $0.metersMadeSum = 24.5
+                $0.metersMadeHoles = 14
+            })
+
+        XCTAssertEqual(
+            Array(blocks.map(\.walk).prefix(3)),
+            ["subhead:exactMetresHead", "figure:proximityOnGir", "figure:metersMade"])
+        XCTAssertEqual(title(blocks, "proximityOnGir"), "Average first putt")
+        XCTAssertEqual(title(blocks, "metersMade"), "Metres of first putts holed")
+        XCTAssertEqual(value(blocks, "proximityOnGir"), "3.5 m")
+        XCTAssertEqual(value(blocks, "metersMade"), "24.5 m")
+    }
+
+    /// No exact distance was ever captured: the group is ABSENT, not a pair of
+    /// em-dashes claiming the reader putts from nowhere.
+    func testNoExactDistanceMeansNoExactMetreGroupAndNoCurve() {
+        let list = ids(StatsPanelsView.puttingBlocks(puttingPanel()))
+        for id in ["exactMetresHead", "proximityOnGir", "metersMade", "makeCurveHead"] {
+            XCTAssertFalse(list.contains(id), "\(id) survived an empty cohort")
+        }
+    }
+
+    /// The two figures answer different questions off different denominators,
+    /// so each carries its own gate rather than the group's.
+    func testEachHalfOfTheExactMetrePairHasItsOwnGate() {
+        let onlyMade = ids(
+            StatsPanelsView.puttingBlocks(
+                puttingPanel {
+                    $0.metersMadeSum = 9
+                    $0.metersMadeHoles = 5
+                }))
+        XCTAssertEqual(Array(onlyMade.prefix(2)), ["exactMetresHead", "metersMade"])
+        XCTAssertFalse(onlyMade.contains("proximityOnGir"))
+
+        let onlyProximity = ids(
+            StatsPanelsView.puttingBlocks(
+                puttingPanel {
+                    $0.firstPuttMRecordedGir = 4
+                    $0.firstPuttMSumGir = 10
+                }))
+        XCTAssertEqual(Array(onlyProximity.prefix(2)), ["exactMetresHead", "proximityOnGir"])
+        XCTAssertFalse(onlyProximity.contains("metersMade"))
+    }
+
+    /// One bar per metre FACED. A metre nobody putted from is not a row at 0%,
+    /// which would read as a distance you always miss from.
+    func testTheMakeCurveDrawsOneBarPerMetreFacedAndSkipsTheRest() {
+        let blocks = StatsPanelsView.puttingBlocks(puttingPanel(curve: curveRows()))
+
+        XCTAssertEqual(
+            ids(blocks).filter { $0.hasPrefix("curve-") }, ["curve-1", "curve-3", "curve-12"])
+        XCTAssertFalse(ids(blocks).contains("curve-2"))
+        XCTAssertEqual(title(blocks, "makeCurveHead"), "Holed, by distance")
+        // Each row states its own sample, so a 0% over two putts cannot be
+        // mistaken for a 0% over forty, and the average putts get the second
+        // column — the same two-column anatomy the ladder uses.
+        XCTAssertEqual(
+            Array(blocks.map(\.walk).drop(while: { $0 != "subhead:makeCurveHead" }).prefix(3)),
+            ["subhead:makeCurveHead", "columns:curveCols", "curve:curve-1"])
+        XCTAssertEqual(title(blocks, "curve-1"), "1 m, 10 putts")
+        XCTAssertEqual(value(blocks, "curve-1"), "80%")
+        XCTAssertEqual(cost(blocks, "curve-1"), "1.20")
+        XCTAssertEqual(share(blocks, "curve-1") ?? -1, 0.8, accuracy: 1e-12)
+        // Two attempts and no make is a real answer: 0%, drawn — and the row
+        // says "2 putts", which is the whole reason the sample is in the title.
+        XCTAssertEqual(title(blocks, "curve-12"), "12 m, 2 putts")
+        XCTAssertEqual(value(blocks, "curve-12"), "0%")
+        XCTAssertEqual(cost(blocks, "curve-12"), "2.50")
+        XCTAssertEqual(share(blocks, "curve-12"), 0)
+    }
+
+    /// The curve's column headers are pinned words, the way the ladder's are,
+    /// and the second column is PUTTS — an average, not a cost.
+    func testTheCurveCarriesItsOwnColumnHeaders() {
+        let blocks = StatsPanelsView.puttingBlocks(puttingPanel(curve: curveRows()))
+        guard case .columns(_, let cells)? = blocks.first(where: { $0.id == "curveCols" }) else {
+            return XCTFail("the curve draws a header row")
+        }
+        XCTAssertEqual(cells, ["Holed", "Putts"])
+    }
+
+    /// The row read aloud: no em dash, no gained/lost direction — an average
+    /// has none.
+    func testACurveRowReadsAsWords() {
+        XCTAssertEqual(
+            StatsPanelsView.curveReading(title: "3 m, 6 putts", value: "33%", avg: "1.67"),
+            "3 m, 6 putts, 33% holed, 1.67 putts on average")
+    }
+
+    /// Ball-striking beside position, at the top of the approach card.
+    func testGreenAttemptsHitSitsBesideGirAtTheTopOfTheApproachCard() {
+        let blocks = StatsPanelsView.approachBlocks(approachPanel { $0.greenHitLate = 4 })
+
+        XCTAssertEqual(
+            Array(blocks.map(\.walk).prefix(3)),
+            ["subhead:greenAttemptsHead", "bar:girInRegulation", "bar:greenAttemptsHit"])
+        XCTAssertEqual(value(blocks, "girInRegulation"), "43%")
+        XCTAssertEqual(value(blocks, "greenAttemptsHit"), "50%")
+    }
+
+    /// With no hit-late answer the second row IS the first row, so the pair
+    /// would say one thing twice.
+    func testWithNoHitLateAnswerTheGreenAttemptsPairIsAbsent() {
+        let list = ids(StatsPanelsView.approachBlocks(approachPanel()))
+        XCTAssertFalse(list.contains("greenAttemptsHead"))
+        XCTAssertFalse(list.contains("greenAttemptsHit"))
+        XCTAssertFalse(list.contains("girInRegulation"))
+    }
+
+    /// The chip-on-GIR cohort is its own gate, and the par-5 birdie split is a
+    /// further one — a cohort with no par 5 in it draws no birdie row.
+    func testTheChipOnGirGroupAndItsParFiveSplitGateSeparately() {
+        var m = StatMeasuresMath.zero
+        m.scrambleAttemptsStandard = 8
+        m.scrambleSuccessesStandard = 3
+        guard let bare = StatsDashboardModel.shortGamePanel(m) else {
+            return XCTFail("an attempt gates the panel in")
+        }
+        XCTAssertFalse(ids(StatsPanelsView.shortGameBlocks(bare)).contains("chipOnGirHead"))
+
+        m.chipGirHoles = 10
+        m.chipGirOnePutt = 6
+        guard let noPar5 = StatsDashboardModel.shortGamePanel(m) else {
+            return XCTFail("the chip-on-GIR cohort gates the panel in")
+        }
+        let noPar5Walk = StatsPanelsView.shortGameBlocks(noPar5).map(\.walk)
+        XCTAssertEqual(
+            noPar5Walk.filter { $0.contains("chipOnGir") },
+            ["subhead:chipOnGirHead", "bar:chipOnGir"])
+
+        m.chipGirPar5 = 4
+        m.chipGirPar5OnePutt = 1
+        guard let panel = StatsDashboardModel.shortGamePanel(m) else {
+            return XCTFail("the chip-on-GIR cohort gates the panel in")
+        }
+        let blocks = StatsPanelsView.shortGameBlocks(panel)
+        XCTAssertEqual(
+            blocks.map(\.walk).filter { $0.contains("chipOnGir") },
+            ["subhead:chipOnGirHead", "bar:chipOnGir", "bar:chipOnGirPar5"])
+        XCTAssertEqual(value(blocks, "chipOnGir"), "60%")
+        XCTAssertEqual(value(blocks, "chipOnGirPar5"), "25%")
+    }
+
+    /// A window whose ONLY short-game record is the chip-on-GIR cohort still
+    /// gets a card — the gate is not scramble attempts alone.
+    func testAChipOnGirCohortAloneGatesTheShortGameCardIn() {
+        var m = StatMeasuresMath.zero
+        m.chipGirHoles = 6
+        m.chipGirOnePutt = 4
+        XCTAssertNotNil(StatsDashboardModel.shortGamePanel(m))
+    }
+
+    /// Every new row states its own denominator in the sheet, and the curve's
+    /// card says the one thing no other card has to: the window does not apply
+    /// to it.
+    func testTheExactMetreCardsSayTheReadersOwnSample() {
+        let model = metresModel()
+        func body(_ id: StatsPanelID, _ cardID: String) -> String {
+            StatsPanelInfo.cards(id, model, .fallback).first { $0.id == cardID }!.body
+        }
+
+        XCTAssertTrue(
+            body(.approach, "greenAttemptsHit").contains("Measured over 60 holes."),
+            body(.approach, "greenAttemptsHit"))
+        // Not plain "greens": the average is over the greens hit that also
+        // carry a metre, which is the narrower set.
+        XCTAssertTrue(
+            body(.putting, "proximityOnGir")
+                .contains("Measured over 18 greens hit with the metres recorded."),
+            body(.putting, "proximityOnGir"))
+        let made = body(.putting, "metersMade")
+        // And NOT "with the metres recorded" here: the count includes the
+        // inside-1 m one-putts credited at a flat half metre.
+        XCTAssertTrue(made.contains("Measured over 14 one-putt holes counted."), made)
+        // Statement of fact, never exclusion wording.
+        XCTAssertTrue(
+            made.contains("3 holes you one-putted have no distance recorded."), made)
+        XCTAssertFalse(made.contains("Left out"), made)
+        let curve = body(.putting, "makeCurve")
+        XCTAssertTrue(curve.contains("Measured over 18 putts from 3 distances"), curve)
+        XCTAssertTrue(curve.contains("not narrowed by the window"), curve)
+        XCTAssertTrue(
+            body(.shortGame, "chipOnGir").contains("Measured over 10 holes."),
+            body(.shortGame, "chipOnGir"))
+
+        // The cards arrive in the order the ROWS do, so a reader scanning the
+        // sheet meets them where they met the numbers.
+        XCTAssertEqual(
+            Array(StatsPanelInfo.cards(.putting, model, .fallback).map(\.id).prefix(3)),
+            ["proximityOnGir", "metersMade", "makeCurve"])
+        XCTAssertEqual(StatsPanelInfo.cards(.approach, model, .fallback).first?.id, "greenAttemptsHit")
+    }
+
+    /// The new groups are absent from a sheet whose window never recorded them,
+    /// and the trigger's gate still agrees with the sheet's contents.
+    func testTheExactMetreCardsAreAbsentWithoutTheirCohorts() {
+        let model = Self.windowWModel()
+        let putting = StatsPanelInfo.cards(.putting, model, .fallback).map(\.id)
+        for id in ["proximityOnGir", "metersMade", "makeCurve"] {
+            XCTAssertFalse(putting.contains(id), "\(id) survived an empty cohort")
+        }
+        XCTAssertFalse(
+            StatsPanelInfo.cards(.approach, model, .fallback).map(\.id).contains("greenAttemptsHit"))
+    }
+
+    /// The whole screen, with every new group in force: still one id per row.
+    func testTheNewGroupsKeepEveryIdUnique() {
+        let model = metresModel()
+        for id in StatsPanelID.allCases {
+            let blockIDs = StatsPanelsView.blocks(id, model).map(\.id)
+            XCTAssertEqual(Set(blockIDs).count, blockIDs.count, "\(id.rawValue) has a duplicate id")
+            let cardIDs = StatsPanelInfo.cards(id, model, .fallback).map(\.id)
+            XCTAssertEqual(Set(cardIDs).count, cardIDs.count, "\(id.rawValue) has a duplicate card")
         }
     }
 }

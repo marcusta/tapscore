@@ -29,6 +29,7 @@
 // testable headless.
 
 import {
+    EXPECTED_PUTTS_V2,
     type ByParGroup,
     type ByTee,
     type PenaltySplit,
@@ -128,6 +129,37 @@ export function regularUnit(one: string): SampleUnit {
 export const UNIT_ROUNDS = regularUnit('round');
 export const UNIT_HOLES = regularUnit('hole');
 export const UNIT_GREENS = regularUnit('green');
+/** The short form, for a row that carries its own sample in a title cell. */
+export const UNIT_PUTTS = regularUnit('putt');
+
+// The exact-metre cohort's four denominators (migration 064). Each names the
+// REFINEMENT, not the module: a bucket-only hole is fully valid everywhere and
+// simply is not in these counts, so a card that said "over 24 greens" about a
+// figure measured over the 9 greens with a metre would overstate its own
+// sample by the size of the coverage gap.
+export const UNIT_MEASURED_GREENS: SampleUnit = {
+    one: 'green hit with the metres recorded',
+    many: 'greens hit with the metres recorded',
+};
+// NOT "with the metres recorded": the server's own denominator counts an
+// inside-1 m one-putt that carries no metre, priced at the flat 0.5 m credit.
+// The unit names the holes the sum is over, and the card's body explains the
+// credit — a unit that promised a metre on every one of them would be wrong
+// about the figure it samples.
+export const UNIT_MEASURED_ONE_PUTTS: SampleUnit = {
+    one: 'one-putt hole counted',
+    many: 'one-putt holes counted',
+};
+export const UNIT_FIRST_PUTTS: SampleUnit = {
+    one: 'first putt with a distance recorded',
+    many: 'first putts with a distance recorded',
+};
+// Both halves of the cohort, because both bound it: the chip has to be on a
+// green hit in regulation, and the hole has to have resolved its putts.
+export const UNIT_CHIPPED_GREENS: SampleUnit = {
+    one: 'green hit where you chipped and finished the hole',
+    many: 'greens hit where you chipped and finished the hole',
+};
 
 /**
  * The sample behind an average — "over 24 greens". No thin mark: there is no
@@ -409,6 +441,41 @@ export function componentTitle(component: StrokesLostComponent): string {
 // the one-card redesign removed (owner ruling, 2026-08-02). What the terms mean
 // lives behind the "How this works" link, interpolated with the reader's own
 // numbers.
+
+/**
+ * The refine vocabulary's open-ended top chip, READ off the frozen table rather
+ * than written down again: `EXPECTED_PUTTS_V2` is the vocabulary, so its last
+ * metre is the one the capture row labels "20+". A second literal here would be
+ * a copy that can drift from the chips the player actually taps.
+ */
+const FIRST_PUTT_M_TOP = EXPECTED_PUTTS_V2.reduce((top, r) => Math.max(top, r.meters), 0);
+
+/**
+ * One value of the refine vocabulary as a row title — "0.8 m", "3 m", "20 m+".
+ *
+ * The top chip is stored as its own metre (proposal §1), so the title says
+ * "20 m+" rather than claiming a putt was measured at exactly twenty metres.
+ * Whole values print whole: "3 m", never "3.0 m", so a column of titles reads
+ * as the chips the player tapped.
+ */
+export function metersTitle(meters: number): string {
+    if (meters >= FIRST_PUTT_M_TOP) return `${FIRST_PUTT_M_TOP} m+`;
+    return `${formatNumber(meters, Number.isInteger(meters) ? 0 : 1)} m`;
+}
+
+/**
+ * A distance in metres, for a value cell: one decimal, always the unit. Null at
+ * an empty sample, matching `formatAverage` — the caller omits the row.
+ */
+export function formatMeters(r: Rate, decimals = 1): string | null {
+    const value = formatAverage(r, decimals);
+    return value === null ? null : `${value} m`;
+}
+
+/** A metre TOTAL rather than an average — the metres of first putts holed. */
+export function formatMetersTotal(meters: number): string {
+    return `${formatCount(meters)} m`;
+}
 
 export function bucketTitle(bucket: PuttBucket): string {
     switch (bucket) {

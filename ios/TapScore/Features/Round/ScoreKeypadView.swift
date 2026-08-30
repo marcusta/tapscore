@@ -514,6 +514,17 @@ struct StatsView: View {
     @Bindable var store: RoundStore
     @State private var explainersPresented = false
 
+    /// The card, decided once: the rows the golfer sees, in the order they see
+    /// them. The `ForEach` below and the explainer sheet both read THIS — two
+    /// filters over `statPrompts` are two chances to disagree about what is on
+    /// the card.
+    private var rows: [ShortGameFold.Row] {
+        store.shortGameFold.visible(
+            store.statPrompts,
+            disclosure: store.statShortGameDisclosure,
+            visit: store.currentVisit)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -521,6 +532,10 @@ struct StatsView: View {
             // A par 5 with every module on is seven prompts — this scrolls, and
             // the footer stays put below it.
             ScrollView {
+                // Read ONCE, then every question below — is there a stats half,
+                // where does the rule go, what does the sheet explain — is asked
+                // of the same list.
+                let cardRows = rows
                 VStack(spacing: TapSpacing.xl) {
                     // The format's own toggles first (what the round needs to
                     // score), then the player's own stats (what they asked to
@@ -529,18 +544,34 @@ struct StatsView: View {
                     ForEach(store.formatMetadataInputsForStep, id: \.key) { input in
                         group(input)
                     }
-                    if !store.formatMetadataInputsForStep.isEmpty && !store.statPrompts.isEmpty {
+                    if !store.formatMetadataInputsForStep.isEmpty && !cardRows.isEmpty {
                         Rectangle()
                             .fill(KeypadPalette.ruleSoft)
                             .frame(height: 1)
                             .padding(.horizontal, TapSpacing.xl)
                     }
-                    ForEach(store.statPrompts) { prompt in
-                        statGroup(prompt)
+                    // Spacing is per row rather than one VStack constant: a
+                    // label-less refinement sits at the label-to-control gap
+                    // under the row it refines, everything else at the group
+                    // gap. Stated positively here, so reordering the card
+                    // cannot leave a stale negative padding behind.
+                    if !cardRows.isEmpty {
+                        VStack(spacing: 0) {
+                            ForEach(Array(cardRows.enumerated()), id: \.element.id) { index, row in
+                                switch row {
+                                case .prompt(let prompt):
+                                    statGroup(prompt)
+                                        .padding(.top, topGap(row, isFirst: index == 0))
+                                case .shortGameDisclosure:
+                                    shortGameDisclosureRow
+                                        .padding(.top, topGap(row, isFirst: index == 0))
+                                }
+                            }
+                        }
                     }
                     // One worded trigger, one sheet — never eleven ⓘ glyphs on
                     // a card whose whole job is to stay quiet.
-                    if !store.statPrompts.isEmpty {
+                    if !cardRows.isEmpty {
                         explainerTrigger
                     }
                 }
@@ -554,8 +585,47 @@ struct StatsView: View {
         .background(KeypadPalette.screen.ignoresSafeArea())
         .environment(\.colorScheme, .dark)
         .sheet(isPresented: $explainersPresented) {
+            // EVERY prompt the step is asking, including a folded-away pair.
+            // The sheet explains vocabulary, not layout — and "what does Add
+            // short game mean" is exactly the question that sends someone here.
             StatExplainerSheet(prompts: store.statPrompts)
         }
+    }
+
+    /// The folded short-game pair, behind one worded row. A chip on a green hit
+    /// in regulation is the exception, so the two rows do not spend space on
+    /// every GIR-hit hole — but the question is one tap away, and the tap is a
+    /// WORD (`docs/design-guidelines.md` §4), never a chevron.
+    private var shortGameDisclosureRow: some View {
+        Button { store.openShortGame() } label: {
+            Text(StatCaptureCopy.addShortGame)
+                .font(TapFont.ui(size: 16.8, weight: .bold))
+                .foregroundStyle(KeypadPalette.inkMuted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(KeypadPalette.pad)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(KeypadPalette.hollowBorder, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("stat-short-game-disclosure")
+    }
+
+    /// The gap ABOVE a row. A label-less refinement (`first_putt_m`) gets the
+    /// label-to-control gap, so it reads as part of the row it refines; every
+    /// other row gets the group gap. The first row gets neither: whatever sits
+    /// above the stats half already supplies the gap — the enclosing stack's
+    /// `xl` spacing under the format toggles and their rule, or, when there are
+    /// none, the scroll content's own top padding.
+    private func topGap(_ row: ShortGameFold.Row, isFirst: Bool) -> CGFloat {
+        guard !isFirst else { return 0 }
+        if case .prompt(let prompt) = row, prompt.label.isEmpty { return TapSpacing.sm }
+        return TapSpacing.xl
     }
 
     /// Web: the `.se-stats` step header's `What these mean`. A word, not a
@@ -686,11 +756,28 @@ struct StatsView: View {
     /// tap means, is `StatStep`'s answer — this only draws it.
     @ViewBuilder
     private func statGroup(_ prompt: StatPrompt) -> some View {
+        // A label-less prompt (`first_putt_m`) refines the row above it rather
+        // than asking its own question, so it draws no heading — and, having no
+        // heading, it needs a spoken name of its own. Its tighter gap to the
+        // parent row is `topGap`'s job.
+        if prompt.label.isEmpty {
+            statGroupBody(prompt)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(StatCaptureCopy.name(prompt))
+        } else {
+            statGroupBody(prompt)
+        }
+    }
+
+    @ViewBuilder
+    private func statGroupBody(_ prompt: StatPrompt) -> some View {
         VStack(spacing: TapSpacing.sm) {
-            Text(prompt.label)
-                .font(TapFont.display(size: 16.8, weight: .bold))
-                .foregroundStyle(KeypadPalette.ink)
-                .multilineTextAlignment(.center)
+            if !prompt.label.isEmpty {
+                Text(prompt.label)
+                    .font(TapFont.display(size: 16.8, weight: .bold))
+                    .foregroundStyle(KeypadPalette.ink)
+                    .multilineTextAlignment(.center)
+            }
             switch prompt.control {
             case .segments(let options):
                 HStack(spacing: TapSpacing.sm) {
@@ -708,6 +795,16 @@ struct StatsView: View {
                 }
             case .stepper(let min, let max):
                 statStepper(prompt, min: min, max: max)
+            case .refine:
+                // Unreachable: `StatStep.prompts` resolves every refine control
+                // into the plain segments row for the selected parent value
+                // (`resolvedControl`), so a view never sees this case. If that
+                // ever stops being true the row would silently vanish from the
+                // card, so say so loudly in debug rather than draw nothing.
+                let _ = assertionFailure(
+                    "unresolved refine control for \(prompt.key.rawValue) — StatStep.prompts "
+                        + "must resolve it to segments")
+                EmptyView()
             }
             if prompt.key == .gir, let hint = girHint {
                 Text(hint.text)
@@ -802,6 +899,7 @@ struct StatsView: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
         // Web: `flex: 1; max-width: 180px` — the pair grows to fill the row but
         // never turns into two banners on a wide screen.
         .frame(maxWidth: 180)

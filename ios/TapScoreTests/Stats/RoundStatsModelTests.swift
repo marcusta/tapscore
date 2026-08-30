@@ -30,7 +30,7 @@ final class RoundStatsModelTests: XCTestCase {
         PlayerRoundStats(
             roundId: id, date: date, courseName: "Linköpings GK", courseId: "c1",
             roundType: .full18, venueType: .outdoor, name: name, holeCount: 18,
-            measures: measures)
+            measures: measures, girArrivalMetres: [])
     }
 
     /// A round with enough recorded to give the waterfall all five terms: an
@@ -332,6 +332,50 @@ final class RoundStatsModelTests: XCTestCase {
         // fewer strokes lost than usual.
         guard let putting = model.deltas?.putting else { return XCTFail("expected a putting delta") }
         XCTAssertLessThan(putting, 0)
+    }
+
+    /// A prior round with exact arrivals must be priced ON the dashboard's
+    /// terms when it sits in the baseline, not on bucket terms.
+    ///
+    /// Otherwise the refinement itself becomes the delta: today's round is
+    /// priced with its metres, the window it is compared against is not, and a
+    /// reader who started tapping distances sees a putting "improvement" that is
+    /// only a change of method.
+    func testAWindowRoundWithArrivalsPricesTheSameAsItDoesOnTheDashboard() {
+        let arrivals = [
+            // Off the bucket anchors on purpose: 3 m and 12 m price exactly
+            // where their buckets do, so a refinement built on them would move
+            // nothing and the test would pass on a tautology.
+            GirArrivalMetresCell(meters: 2, holes: 9),
+            GirArrivalMetresCell(meters: 8, holes: 8),
+        ]
+        let prior = PlayerRoundStats(
+            roundId: "r-2", date: "2026-07-29", courseName: "Linköpings GK", courseId: "c1",
+            roundType: .full18, venueType: .outdoor, name: nil, holeCount: 18,
+            measures: fullRound(strokes: 88, putts: 36), girArrivalMetres: arrivals)
+        let target = PlayerRoundStats(
+            roundId: "r-1", date: "2026-07-30", courseName: "Linköpings GK", courseId: "c1",
+            roundType: .full18, venueType: .outdoor, name: nil, holeCount: 18,
+            measures: fullRound(strokes: 88, putts: 36), girArrivalMetres: arrivals)
+
+        let model = RoundStatsModel.build(round: target, holes: [], history: [prior])
+        // The same round, through the dashboard's own reduction.
+        let dashboard = StatsDashboardModel.build(rows: [prior], baseline: SgBaselines.hcp12)
+
+        XCTAssertEqual(model.windowCount, 1)
+        guard let onDashboard = dashboard.rounds.first?.waterfall.putting else {
+            return XCTFail("the prior round has a putting term on the dashboard")
+        }
+        // Target and window are the same measures, so a baseline priced the same
+        // way puts the putting delta at exactly zero. A bucket-priced baseline
+        // against a metre-priced round would not.
+        guard let delta = model.deltas?.putting else { return XCTFail("expected a putting delta") }
+        XCTAssertEqual(delta, 0, accuracy: 1e-9)
+        // And the arrivals actually moved the number — without this the test
+        // would pass on two identical unrefined prices.
+        let unrefined = StatMeasuresMath.strokesLostV3(
+            prior.measures, baseline: SgBaselines.hcp12, girArrivalMetres: [])
+        XCTAssertNotEqual(onDashboard, unrefined.putting ?? .nan, accuracy: 1e-9)
     }
 
     func testThePanelsAreThisRoundAlone() {

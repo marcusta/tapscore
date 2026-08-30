@@ -27,6 +27,7 @@ import {
     derivedGirState,
     statApplies,
     type DerivedGirState,
+    type ShortGameDisclosure,
     type StatBatchItem,
     type StatEventKey,
     type StatModules,
@@ -1072,6 +1073,16 @@ export class RoundViewService {
     statStepperValue(key: StatEventKey, min: number): number {
         this.statRev.get();
         return this.statStep?.intValue(key) ?? min;
+    }
+
+    /**
+     * Whether the two short-game prompts fold away by default on this hole
+     * (`ShortGameDisclosure`). The model decides collapsible-vs-not; the "the
+     * golfer tapped it open on this visit" flag is the view's own.
+     */
+    statShortGameDisclosure(): ShortGameDisclosure {
+        this.statRev.get();
+        return this.statStep?.shortGameDisclosure() ?? 'none';
     }
 
     statIsAnswered(key: StatEventKey): boolean {

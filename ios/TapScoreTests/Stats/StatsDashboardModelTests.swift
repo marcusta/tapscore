@@ -21,12 +21,13 @@ final class StatsDashboardModelTests: XCTestCase {
     }
 
     private func row(
-        _ id: String, date: String, _ measures: StatMeasures = StatMeasuresMath.zero
+        _ id: String, date: String, _ measures: StatMeasures = StatMeasuresMath.zero,
+        arrivals: [GirArrivalMetresCell] = []
     ) -> PlayerRoundStats {
         PlayerRoundStats(
             roundId: id, date: date, courseName: "Linköpings GK", courseId: "c1",
             roundType: .full18, venueType: .outdoor, name: nil, holeCount: 18,
-            measures: measures)
+            measures: measures, girArrivalMetres: arrivals)
     }
 
     /// A round with a full putting record: 18 holes scored, 18 putt counts, and
@@ -657,6 +658,138 @@ final class StatsDashboardModelTests: XCTestCase {
     func testAnEmptyWindowHasNoResultsAtAll() {
         XCTAssertNil(StatsDashboardModel.build(rows: []).results)
         XCTAssertNil(StatsDashboardModel.empty.results)
+    }
+
+    // MARK: - 7. Exact first-putt metres (migration 064)
+
+    /// The arrivals are a ROW field, so the fold is what makes a window's
+    /// strokes-gained sum a statement about the window. Same metre from two
+    /// rounds is ONE cell — `strokesLostV3` prices a cell once, and two rows for
+    /// 3 m would be two adjustments for one set of holes.
+    func testArrivalCellsFoldPerMetreAndComeBackAscending() {
+        let cells = StatsDashboardModel.arrivalCells([
+            row("a", date: "2026-07-02", arrivals: [.init(meters: 3, holes: 2), .init(meters: 8, holes: 1)]),
+            row("b", date: "2026-07-01", arrivals: [.init(meters: 3, holes: 5), .init(meters: 0.5, holes: 1)]),
+        ])
+
+        XCTAssertEqual(
+            cells,
+            [
+                SgGirArrivalMetres(meters: 0.5, holes: 1),
+                SgGirArrivalMetres(meters: 3, holes: 7),
+                SgGirArrivalMetres(meters: 8, holes: 1),
+            ])
+    }
+
+    /// The metres reach the waterfall, and they reach it THROUGH the window: a
+    /// round dropped from the window takes its own arrivals with it, and the
+    /// round that stays keeps exactly the per-round figure it had alone.
+    func testArrivalMetresRepriceThePuttingTermAndFollowTheWindow() {
+        let m = fullRound(strokes: 79, putts: 31)
+        // Every one of the seventeen 2–4 m arrivals was actually at 4 m — the
+        // far edge of the bucket, so the refinement has to move the number.
+        let far = row("a", date: "2026-07-02", m, arrivals: [.init(meters: 4, holes: 17)])
+        let bare = row("a", date: "2026-07-02", m)
+        let older = row("b", date: "2026-07-01", m, arrivals: [.init(meters: 0.5, holes: 17)])
+
+        let refined = StatsDashboardModel.build(rows: [far])
+        let plain = StatsDashboardModel.build(rows: [bare])
+        XCTAssertNotEqual(refined.waterfall.putting, plain.waterfall.putting)
+        // The refinement MOVES strokes between approach and putting; it never
+        // invents or loses one, so the card's total is untouched.
+        XCTAssertEqual(refined.waterfall.total ?? .nan, plain.waterfall.total ?? .nan, accuracy: 1e-9)
+
+        // Two rounds in the window: the row list still carries each round's OWN
+        // waterfall, unchanged by the other round's arrivals.
+        let both = StatsDashboardModel.build(rows: [far, older])
+        XCTAssertEqual(
+            both.rounds.first(where: { $0.id == "a" })?.waterfall.putting,
+            refined.rounds[0].waterfall.putting)
+        // …and the window's own waterfall is priced over both rounds' cells,
+        // which is a different number from either round alone.
+        XCTAssertNotEqual(both.waterfall.putting, refined.waterfall.putting)
+    }
+
+    /// The three new putting figures, off the summed window.
+    func testThePuttingPanelCarriesTheExactMetreFigures() {
+        let model = StatsDashboardModel.build(
+            rows: [
+                row(
+                    "a", date: "2026-07-02",
+                    measures {
+                        $0.puttsRecorded = 18
+                        $0.firstPuttMRecordedGir = 8
+                        $0.firstPuttMSumGir = 28
+                        $0.metersMadeSum = 12.5
+                        $0.metersMadeHoles = 6
+                        $0.onePuttsUnmeasured = 2
+                    })
+            ],
+            curve: [
+                FirstPuttCurveRow(firstPuttM: 3, attempts: 4, onePutts: 1, puttsTotal: 7),
+                FirstPuttCurveRow(firstPuttM: 0.5, attempts: 2, onePutts: 2, puttsTotal: 2),
+                FirstPuttCurveRow(firstPuttM: 3, attempts: 2, onePutts: 1, puttsTotal: 3),
+            ])
+
+        guard let putting = model.putting else { return XCTFail("putting panel is present") }
+        XCTAssertEqual(putting.proximityOnGir, Rate(value: 3.5, n: 28, d: 8))
+        XCTAssertEqual(putting.metersMade, 12.5)
+        XCTAssertEqual(putting.metersMadeHoles, 6)
+        XCTAssertEqual(putting.onePuttsUnmeasured, 2)
+        // Sparse and ascending: 1 m, 2 m and everything past 3 m are absent
+        // because nobody putted from there. Rows for the same metre folded.
+        XCTAssertEqual(putting.makeCurve.map(\.meters), [0.5, 3])
+        XCTAssertEqual(putting.makeCurve[1].made, Rate(value: 2.0 / 6.0, n: 2, d: 6))
+        XCTAssertEqual(putting.makeCurve[1].avgPutts, Rate(value: 10.0 / 6.0, n: 10, d: 6))
+    }
+
+    /// No curve fetched (the per-round screen, or a failed request) is an ABSENT
+    /// group, not a curve of zeroes.
+    func testNoCurveMeansNoCurveRows() {
+        let model = StatsDashboardModel.build(
+            rows: [row("a", date: "2026-07-02", measures { $0.puttsRecorded = 18 })])
+
+        XCTAssertEqual(model.putting?.makeCurve, [])
+    }
+
+    func testGreenAttemptsHitSitsBesideGirOnTheApproachPanel() {
+        let model = StatsDashboardModel.build(
+            rows: [
+                row(
+                    "a", date: "2026-07-02",
+                    measures {
+                        $0.girRecorded = 18
+                        $0.girHits = 9
+                        $0.greenHitLate = 3
+                    })
+            ])
+
+        XCTAssertEqual(model.approach?.gir, Rate(value: 0.5, n: 9, d: 18))
+        XCTAssertEqual(model.approach?.greenAttemptsHit, Rate(value: 12.0 / 18.0, n: 12, d: 18))
+        XCTAssertEqual(model.approach?.greenHitLate, 3)
+    }
+
+    /// A chip that PRODUCED a green in regulation is not a scramble attempt, so
+    /// the short-game panel's old gate could not see it. It takes the second
+    /// cohort now, and both rates come through.
+    func testAChipOnGirCohortAloneStillProducesAShortGamePanel() {
+        let model = StatsDashboardModel.build(
+            rows: [
+                row(
+                    "a", date: "2026-07-02",
+                    measures {
+                        $0.chipGirHoles = 4
+                        $0.chipGirOnePutt = 3
+                        $0.chipGirPar5 = 2
+                        $0.chipGirPar5OnePutt = 1
+                    })
+            ])
+
+        guard let shortGame = model.shortGame else {
+            return XCTFail("a chip-on-GIR cohort is a short-game panel")
+        }
+        XCTAssertEqual(shortGame.chipOnGir, Rate(value: 0.75, n: 3, d: 4))
+        XCTAssertEqual(shortGame.chipOnGirPar5Birdie, Rate(value: 0.5, n: 1, d: 2))
     }
 }
 

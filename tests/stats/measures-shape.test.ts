@@ -22,6 +22,7 @@ function row(measures: StatMeasures): PlayerRoundStats {
         name: null,
         holeCount: 18,
         measures,
+        girArrivalMetres: [],
     };
 }
 

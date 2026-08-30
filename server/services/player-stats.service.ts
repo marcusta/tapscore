@@ -106,6 +106,12 @@ export interface PlayerHoleStats {
     gir: boolean | null;
     greenMissDir: GreenMissDir | null;
     firstPutt: StoredFirstPuttBucket | null;
+    /**
+     * Exact first-putt metres (migration 064) — one of the nineteen closed
+     * values, as a number ('20+' is stored as 20). NULL wherever the player
+     * stopped at the bucket.
+     */
+    firstPuttM: number | null;
     /** 0..3, where 3 means "3 or more". */
     putts: number | null;
     shortGameDifficulty: ShortGameDifficulty | null;
@@ -557,6 +563,40 @@ export interface StatMeasures {
     dblPenaltyApproach: number;
     dblPenaltyShort: number;
     dblPenaltyUnknown: number;
+
+    /**
+     * EXACT METRES + THE FIFTH GREEN ANSWER (migration 064).
+     *
+     * `firstPuttMSumGir / firstPuttMRecordedGir` is average first-putt
+     * distance on greens hit — the proximity headline; the unconditioned pair
+     * is its all-holes twin. Both sums are REAL metres.
+     *
+     * `metersMadeSum / metersMadeHoles` is metres of putts holed: one-putt
+     * holes with a metre recorded, plus 0.5 m per metre-less one-putt from
+     * `inside_1m` (the bucket midpoint, priced once server-side).
+     * `onePuttsUnmeasured` is the coverage beside it — one-putts in a fine
+     * bucket other than inside_1m with no metre, which the sum cannot see.
+     *
+     * `greenHitLate` sits OUTSIDE `greenMissRecorded` (the four directions
+     * still partition that); "green attempts hit" is `girHits + greenHitLate`.
+     *
+     * The `chipGir*` quartet is short game on greens hit in regulation. No
+     * COALESCE default: on a hit green an unrecorded count means no chip, so
+     * only recorded answers count. `chipGirOnePutt` needs the putt count; the
+     * par-5 twins are up-and-down for birdie.
+     */
+    firstPuttMRecorded: number;
+    firstPuttMSum: number;
+    firstPuttMRecordedGir: number;
+    firstPuttMSumGir: number;
+    metersMadeSum: number;
+    metersMadeHoles: number;
+    onePuttsUnmeasured: number;
+    greenHitLate: number;
+    chipGirHoles: number;
+    chipGirOnePutt: number;
+    chipGirPar5: number;
+    chipGirPar5OnePutt: number;
 }
 
 /**
@@ -580,6 +620,14 @@ export interface PlayerRoundStats {
     /** Occurrences in the itinerary — 18, 9, or whatever the route compiled to. */
     holeCount: number;
     measures: StatMeasures;
+    /**
+     * The round's attribution-cohort exact-metre arrivals, ascending by metre.
+     * Rides beside `measures` because the client's windowing is client-side
+     * over these rows — a window's SG refinement is the concatenation of its
+     * rounds' cells, exactly as its measures are the sum of its rows. Empty
+     * when no cohort hole recorded a metre.
+     */
+    girArrivalMetres: GirArrivalMetresCell[];
 }
 
 /** A player's whole statistical record: the career total plus its rounds. */
@@ -596,6 +644,13 @@ export interface PlayerStatsSummary {
      * for the whole totals view again on page two bought the client nothing.
      */
     totals: StatMeasures | null;
+    /**
+     * Whole-history exact-metre arrivals for the attribution cohort, summed
+     * per metre — the companion `totals` needs for its own SG refinement.
+     * Follows the same page-one-only rule as `totals`: null on every cursored
+     * page.
+     */
+    girArrivalMetresTotals: GirArrivalMetresCell[] | null;
     /** Most recent round first. A PAGE of them when `limit` was given. */
     rounds: PlayerRoundStats[];
     /**
@@ -603,6 +658,37 @@ export interface PlayerStatsSummary {
      * of the player's history.
      */
     nextCursor: string | null;
+}
+
+/**
+ * One point on the exact-metres putting curve (migration 064): every hole the
+ * player recorded exact first-putt metres AND a putt count on, aggregated over
+ * the whole history by metre value. The client derives make-% as
+ * `onePutts / attempts` and average putts as `puttsTotal / attempts` — both
+ * denominators ride along, so a zero-attempt value simply never appears
+ * (the view has no row for it) and no rate can be computed from nothing.
+ */
+export interface FirstPuttCurvePoint {
+    /** One of the nineteen closed metre values, ascending. */
+    firstPuttM: number;
+    attempts: number;
+    onePutts: number;
+    puttsTotal: number;
+}
+
+/**
+ * One cell of the attribution cohort's exact-metre arrivals (migration 064's
+ * `v_player_sg_gir_arrival_m`): attributable greens-hit whose first putt
+ * recorded exactly this metre. Field names match the client's
+ * `SgGirArrivalMetres` — the rows are handed to `strokesLostV3` verbatim, so
+ * this shape is the wire shape. Every hole counted is already inside its
+ * bucket's `attGirFirstPutt*` measure; the cell refines the bucket's price,
+ * it never adds a hole.
+ */
+export interface GirArrivalMetresCell {
+    /** One of the nineteen closed metre values, ascending. */
+    meters: number;
+    holes: number;
 }
 
 /** Newest-first page over the per-round rows. Totals ignore it (see `summaryForPlayer`). */
@@ -701,6 +787,7 @@ function toHoleStats(row: HoleStatsRow): PlayerHoleStats {
         gir: row.gir === null ? null : row.gir === 1,
         greenMissDir: row.green_miss_dir,
         firstPutt: row.first_putt,
+        firstPuttM: row.first_putt_m,
         putts: row.putts,
         shortGameDifficulty: row.short_game_difficulty,
         shortGameStrokes: row.short_game_strokes,
@@ -725,6 +812,7 @@ function absentHoleStats(roundId: string, playHoleId: string, playerId: string):
         gir: null,
         green_miss_dir: null,
         first_putt: null,
+        first_putt_m: null,
         putts: null,
         short_game_difficulty: null,
         short_game_strokes: null,
@@ -748,6 +836,7 @@ function hasRecordedStat(row: HoleStatsRow): boolean {
         row.gir !== null ||
         row.green_miss_dir !== null ||
         row.first_putt !== null ||
+        row.first_putt_m !== null ||
         row.putts !== null ||
         row.short_game_difficulty !== null ||
         row.short_game_strokes !== null ||
@@ -992,6 +1081,18 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         dblPenaltyApproach: row.dbl_penalty_approach,
         dblPenaltyShort: row.dbl_penalty_short,
         dblPenaltyUnknown: row.dbl_penalty_unknown,
+        firstPuttMRecorded: row.first_putt_m_recorded,
+        firstPuttMSum: row.first_putt_m_sum,
+        firstPuttMRecordedGir: row.first_putt_m_recorded_gir,
+        firstPuttMSumGir: row.first_putt_m_sum_gir,
+        metersMadeSum: row.meters_made_sum,
+        metersMadeHoles: row.meters_made_holes,
+        onePuttsUnmeasured: row.one_putts_unmeasured,
+        greenHitLate: row.green_hit_late,
+        chipGirHoles: row.chip_gir_holes,
+        chipGirOnePutt: row.chip_gir_one_putt,
+        chipGirPar5: row.chip_gir_par5,
+        chipGirPar5OnePutt: row.chip_gir_par5_one_putt,
     };
 }
 
@@ -1220,6 +1321,18 @@ function zeroMeasures(): StatMeasures {
         dblPenaltyApproach: 0,
         dblPenaltyShort: 0,
         dblPenaltyUnknown: 0,
+        firstPuttMRecorded: 0,
+        firstPuttMSum: 0,
+        firstPuttMRecordedGir: 0,
+        firstPuttMSumGir: 0,
+        metersMadeSum: 0,
+        metersMadeHoles: 0,
+        onePuttsUnmeasured: 0,
+        greenHitLate: 0,
+        chipGirHoles: 0,
+        chipGirOnePutt: 0,
+        chipGirPar5: 0,
+        chipGirPar5OnePutt: 0,
     };
 }
 
@@ -1250,6 +1363,7 @@ const MODULE_FOR_KEY = {
     gir: 'approach',
     green_miss_dir: 'approach',
     first_putt: 'putting',
+    first_putt_m: 'putting',
     putts: 'putting',
     short_game_difficulty: 'shortGame',
     short_game_strokes: 'shortGame',
@@ -1270,8 +1384,21 @@ const ENUM_VALUES: Partial<Record<StatKey, readonly string[]>> = {
     tee_result: ['fairway', 'in_play', 'trouble'],
     tee_miss_dir: ['left', 'right'],
     gir: BOOLEAN_VALUES,
-    green_miss_dir: ['long', 'short', 'left', 'right'],
+    // 'hit_late' (migration 064) is the fifth answer: the green WAS hit, over
+    // regulation. It shares the key so the row stays one question on capture.
+    green_miss_dir: ['long', 'short', 'left', 'right', 'hit_late'],
     first_putt: ['inside_1m', '1_to_2m', '2_to_4m', '4_to_8m', 'over_8m'],
+    // Exact metres (migration 064): TEXT exactly as the client sends them —
+    // '20' is the stored form of the "20+" chip. Bucket coherence (a metre
+    // value belonging to the selected fine bucket) is a client-model rule,
+    // consistent with the no-preconditions stance above.
+    first_putt_m: [
+        '0.3', '0.5', '0.8',
+        '1', '1.5', '2',
+        '2.5', '3', '3.5', '4',
+        '5', '6', '7', '8',
+        '10', '12', '14', '16', '20',
+    ],
     putts: ['0', '1', '2', '3'],
     short_game_difficulty: ['standard', 'hard', 'bunker'],
     // A closed, small range — a value set, not the open-ended numeric pattern
@@ -1424,6 +1551,41 @@ export class PlayerStatsService {
             .selectFrom('v_player_stat_totals_v3')
             .selectAll()
             .where('player_id', '=', playerId);
+    }
+
+    /**
+     * The migration-064 make-curve view, aggregated over the player's whole
+     * history. The view is per (player, round, metre value) so per-round reads
+     * stay possible; this read sums the rounds away — the curve is a
+     * whole-history figure, like the totals view.
+     */
+    private firstPuttCurveByPlayer(playerId: string) {
+        return this.db
+            .selectFrom('v_player_first_putt_m_curve')
+            .where('player_id', '=', playerId)
+            .select(({ fn }) => [
+                'first_putt_m',
+                fn.sum<number>('attempts').as('attempts'),
+                fn.sum<number>('one_putts').as('one_putts'),
+                fn.sum<number>('putts_total').as('putts_total'),
+            ])
+            .groupBy('first_putt_m')
+            .orderBy('first_putt_m');
+    }
+
+    /**
+     * The migration-064 attribution-arrival view, per (round, metre) — kept at
+     * the view's own grain because the summary attaches the cells per round
+     * (client-side windowing) and only then sums them for the whole-history
+     * totals.
+     */
+    private sgGirArrivalByPlayer(playerId: string) {
+        return this.db
+            .selectFrom('v_player_sg_gir_arrival_m')
+            .where('player_id', '=', playerId)
+            .select(['round_id', 'first_putt_m', 'holes'])
+            .orderBy('round_id')
+            .orderBy('first_putt_m');
     }
 
     /**
@@ -1863,10 +2025,33 @@ export class PlayerStatsService {
         const roundRows = hasMore ? fetched.slice(0, options.limit) : fetched;
         const last = roundRows[roundRows.length - 1];
 
+        // The attribution cohort's exact-metre arrivals, whole history in one
+        // query (the view is tiny — at most nineteen rows per round, and only
+        // for rounds that refined a bucket). Bucketed per round for the page's
+        // rows; summed per metre for the page-one totals companion.
+        const arrivalRows = await this.sgGirArrivalByPlayer(playerId).execute();
+        const arrivalsByRound = new Map<string, GirArrivalMetresCell[]>();
+        for (const row of arrivalRows) {
+            const cells = arrivalsByRound.get(row.round_id) ?? [];
+            cells.push({ meters: row.first_putt_m, holes: row.holes });
+            arrivalsByRound.set(row.round_id, cells);
+        }
+        let arrivalTotals: GirArrivalMetresCell[] | null = null;
+        if (withTotals) {
+            const byMetre = new Map<number, number>();
+            for (const row of arrivalRows) {
+                byMetre.set(row.first_putt_m, (byMetre.get(row.first_putt_m) ?? 0) + row.holes);
+            }
+            arrivalTotals = [...byMetre.entries()]
+                .sort(([a], [b]) => a - b)
+                .map(([meters, holes]) => ({ meters, holes }));
+        }
+
         return {
             playerId,
             roundsWithStats: withTotals ? (totalsRow?.rounds_with_stats ?? 0) : null,
             totals: withTotals ? (totalsRow ? toMeasures(totalsRow) : zeroMeasures()) : null,
+            girArrivalMetresTotals: arrivalTotals,
             rounds: roundRows.map((row) => ({
                 roundId: row.round_id,
                 date: row.date,
@@ -1877,9 +2062,27 @@ export class PlayerStatsService {
                 name: row.name,
                 holeCount: row.hole_count,
                 measures: toMeasures(row),
+                girArrivalMetres: arrivalsByRound.get(row.round_id) ?? [],
             })),
             nextCursor: hasMore && last ? `${last.date}|${last.round_id}` : null,
         };
+    }
+
+    /**
+     * The exact-metres putting curve — make-% and putts-per-attempt by metre
+     * value, whole history, ascending by distance. Only holes with BOTH the
+     * metre value and a putt count appear (the view's own admission), so every
+     * point carries a real denominator; a metre value never attempted has no
+     * point rather than a zero one.
+     */
+    async firstPuttCurveForPlayer(playerId: string): Promise<FirstPuttCurvePoint[]> {
+        const rows = await this.firstPuttCurveByPlayer(playerId).execute();
+        return rows.map((row) => ({
+            firstPuttM: row.first_putt_m,
+            attempts: row.attempts,
+            onePutts: row.one_putts,
+            puttsTotal: row.putts_total,
+        }));
     }
 
     /**

@@ -32,6 +32,7 @@ function row(over: Partial<PlayerRoundStats> & { roundId: string; date: string }
         name: null,
         holeCount: 18,
         measures: ZERO_MEASURES,
+        girArrivalMetres: [],
         ...over,
     };
 }

@@ -29,6 +29,7 @@ export type StatEventKey =
     | 'short_game_difficulty'
     | 'short_game_strokes'
     | 'first_putt'
+    | 'first_putt_m'
     | 'putts'
     | 'penalties'
     | 'penalty_source';
@@ -52,7 +53,7 @@ export interface StatOption {
     label: string;
 }
 
-/** How a prompt is answered. Deliberately tiny — two shapes cover all seven keys. */
+/** How a prompt is answered. Deliberately tiny — three shapes cover every key. */
 export type StatControl =
     /** Mutually exclusive options. Tapping the selected one deselects it. */
     | { kind: 'segments'; options: readonly StatOption[] }
@@ -60,7 +61,20 @@ export type StatControl =
      * A counter. `max === null` means unbounded upward; the top value renders as
      * "n+" so `putts` can mean "3 or more".
      */
-    | { kind: 'stepper'; min: number; max: number | null };
+    | { kind: 'stepper'; min: number; max: number | null }
+    /**
+     * A refinement of another key's answer: the option set depends on the
+     * PARENT key's current value. This shape lives only in the catalogue —
+     * `StatStep.prompts` resolves it to plain `segments` with the options the
+     * parent's answer selects, so components still render a chip row and
+     * decide nothing. A parent value with no entry means the refinement is
+     * unaskable (and `visibility` reads it `contradicted`).
+     */
+    | {
+          kind: 'refine';
+          parent: StatEventKey;
+          optionsByParent: Readonly<Record<string, readonly StatOption[]>>;
+      };
 
 export interface StatPrompt {
     key: StatEventKey;
@@ -110,6 +124,7 @@ export const STAT_ORDER: readonly StatEventKey[] = [
     'short_game_difficulty',
     'short_game_strokes',
     'first_putt',
+    'first_putt_m',
     'putts',
     'penalties',
     'penalty_source',
@@ -126,10 +141,13 @@ const LABELS: Record<StatEventKey, string> = {
     tee_miss_dir: 'Which side',
     recovery_ok: 'Recovery',
     gir: 'Green in regulation',
-    green_miss_dir: 'Missed where',
+    green_miss_dir: 'Approach',
     short_game_difficulty: 'Short game',
     short_game_strokes: 'Shots to the green',
     first_putt: 'First putt',
+    // The refinement row renders directly under the selected bucket; a leading
+    // label would just repeat "First putt".
+    first_putt_m: '',
     putts: 'Putts',
     penalties: 'Penalties',
     penalty_source: 'Penalty on',
@@ -162,6 +180,9 @@ const CONTROLS: Record<StatEventKey, StatControl> = {
         ],
     },
     // Seen from where the approach was played: long is past the flag.
+    // `hit_late` is the fifth answer: the first green attempt DID hit the
+    // green, just after regulation (on in 3 on a par 4, say) — so there was no
+    // chip, and the short-game prompts are contradicted by it.
     green_miss_dir: {
         kind: 'segments',
         options: [
@@ -169,6 +190,7 @@ const CONTROLS: Record<StatEventKey, StatControl> = {
             { value: 'short', label: 'Short' },
             { value: 'left', label: 'Left' },
             { value: 'right', label: 'Right' },
+            { value: 'hit_late', label: 'On green' },
         ],
     },
     // Post-9a3510e: five buckets. The three legacy values (`inside_2m`,
@@ -184,6 +206,45 @@ const CONTROLS: Record<StatEventKey, StatControl> = {
             { value: '4_to_8m', label: '4–8m' },
             { value: 'over_8m', label: '> 8m' },
         ],
+    },
+    // Exact metres, an optional refinement of the bucket. Closed vocabulary,
+    // one option set per FINE bucket — the legacy coarse values have no entry,
+    // so a legacy prefill reads `contradicted` and never shows the row. Values
+    // are the exact TEXT the server stores ('0.3' … '20'); '20' renders "20+".
+    first_putt_m: {
+        kind: 'refine',
+        parent: 'first_putt',
+        optionsByParent: {
+            inside_1m: [
+                { value: '0.3', label: '0.3m' },
+                { value: '0.5', label: '0.5m' },
+                { value: '0.8', label: '0.8m' },
+            ],
+            '1_to_2m': [
+                { value: '1', label: '1m' },
+                { value: '1.5', label: '1.5m' },
+                { value: '2', label: '2m' },
+            ],
+            '2_to_4m': [
+                { value: '2.5', label: '2.5m' },
+                { value: '3', label: '3m' },
+                { value: '3.5', label: '3.5m' },
+                { value: '4', label: '4m' },
+            ],
+            '4_to_8m': [
+                { value: '5', label: '5m' },
+                { value: '6', label: '6m' },
+                { value: '7', label: '7m' },
+                { value: '8', label: '8m' },
+            ],
+            over_8m: [
+                { value: '10', label: '10m' },
+                { value: '12', label: '12m' },
+                { value: '14', label: '14m' },
+                { value: '16', label: '16m' },
+                { value: '20', label: '20+' },
+            ],
+        },
     },
     short_game_difficulty: {
         kind: 'segments',
@@ -224,6 +285,18 @@ export function statControl(key: StatEventKey): StatControl {
     return CONTROLS[key];
 }
 
+/**
+ * The option set a `refine` control offers for one parent value, or `null`
+ * when that parent value has no refinement (unanswered, or a legacy value).
+ * Exposed for `StatStep` and the tests; components never call it — they get
+ * the resolved `segments` control from `prompts`.
+ */
+export function refineOptions(key: StatEventKey, parentValue: string | null): readonly StatOption[] | null {
+    const control = CONTROLS[key];
+    if (control.kind !== 'refine' || parentValue === null) return null;
+    return control.optionsByParent[parentValue] ?? null;
+}
+
 /** Display text for a stepper value: the top of a bounded range is open-ended. */
 export function stepperText(value: number, max: number | null): string {
     if (max !== null && value >= max) return `${value}+`;
@@ -262,6 +335,17 @@ export function statApplies(
  *   cleared.
  */
 export type StatVisibility = 'visible' | 'unreadable' | 'contradicted';
+
+/**
+ * How the short-game rows present on a GIR-hit hole (proposal: "Add short
+ * game"). `none` = the rows render normally (missed green) or are off the card
+ * entirely; `collapsed` = visible but folded behind the disclosure row, because
+ * a chip on a green hit in regulation is the exception; `expanded` = a value
+ * exists, so the rows render normally. The transient "tapped open this visit"
+ * flag is the component's, not the model's — the model only says
+ * collapsible-vs-expanded.
+ */
+export type ShortGameDisclosure = 'none' | 'collapsed' | 'expanded';
 
 // ---------------------------------------------------------------------------
 // Derived GIR (proposal §3.4b)
@@ -463,9 +547,21 @@ export class StatStep {
         const out: StatPrompt[] = [];
         for (const key of STAT_ORDER) {
             if (!this.isVisible(key)) continue;
-            out.push({ key, label: statLabel(key), control: statControl(key) });
+            out.push({ key, label: statLabel(key), control: this.resolvedControl(key) });
         }
         return out;
+    }
+
+    /**
+     * The control a renderer gets: a `refine` entry is resolved to plain
+     * `segments` carrying the option set the parent's current answer selects,
+     * so the component draws an ordinary chip row and decides nothing. Only
+     * called for visible keys, where the option set is guaranteed to exist.
+     */
+    private resolvedControl(key: StatEventKey): StatControl {
+        const control = statControl(key);
+        if (control.kind !== 'refine') return control;
+        return { kind: 'segments', options: refineOptions(key, this.value(control.parent)) ?? [] };
     }
 
     get isEmpty(): boolean {
@@ -501,21 +597,36 @@ export class StatStep {
                     return 'unreadable';
                 return this.value('gir') === '0' ? 'visible' : 'contradicted';
             case 'short_game_difficulty':
-                // Answered-miss, not merely unanswered: an untouched GIR says
-                // nothing about whether there was a short-game shot.
+                // Answered, not merely untouched: an untouched GIR says nothing
+                // about whether there was a short-game shot. A hit green keeps
+                // the prompts too (a par-5 chip on for GIR is a real chip) —
+                // `shortGameDisclosure` tells the view to fold them away by
+                // default there. `hit_late` is the one answer that RULES OUT a
+                // chip: the green attempt finished on the green.
                 if (!this.modules.shortGame || this.visibility('gir') !== 'visible')
                     return 'unreadable';
-                return this.value('gir') === '0' ? 'visible' : 'contradicted';
+                if (this.value('green_miss_dir') === 'hit_late') return 'contradicted';
+                return this.value('gir') !== null ? 'visible' : 'contradicted';
             case 'short_game_strokes':
                 // Same gate as short_game_difficulty — the counter is asked
                 // whenever there was a short-game shot, not only once a
                 // difficulty is picked.
                 if (!this.modules.shortGame || this.visibility('gir') !== 'visible')
                     return 'unreadable';
-                return this.value('gir') === '0' ? 'visible' : 'contradicted';
+                if (this.value('green_miss_dir') === 'hit_late') return 'contradicted';
+                return this.value('gir') !== null ? 'visible' : 'contradicted';
             case 'first_putt':
             case 'putts':
                 return this.modules.putting ? 'visible' : 'unreadable';
+            case 'first_putt_m':
+                // Refines `first_putt`, so it inherits that row's readability;
+                // without a FINE bucket selected (unanswered, or a legacy
+                // coarse value) there is nothing to refine.
+                if (!this.modules.putting || this.visibility('first_putt') !== 'visible')
+                    return 'unreadable';
+                return refineOptions('first_putt_m', this.value('first_putt')) !== null
+                    ? 'visible'
+                    : 'contradicted';
             case 'penalties':
                 return this.modules.penalties ? 'visible' : 'unreadable';
             case 'penalty_source':
@@ -527,6 +638,16 @@ export class StatStep {
 
     isVisible(key: StatEventKey): boolean {
         return this.visibility(key) === 'visible';
+    }
+
+    /** See `ShortGameDisclosure`. Only ever `collapsed` on a GIR-hit hole. */
+    shortGameDisclosure(): ShortGameDisclosure {
+        if (this.value('gir') !== '1') return 'none';
+        if (this.visibility('short_game_difficulty') !== 'visible') return 'none';
+        return this.value('short_game_difficulty') === null &&
+            this.value('short_game_strokes') === null
+            ? 'collapsed'
+            : 'expanded';
     }
 
     // --- Reading ---
@@ -559,6 +680,13 @@ export class StatStep {
      */
     answer(key: StatEventKey, value: string | null): void {
         if (!this.isVisible(key)) return;
+        // A refine value must belong to the option set its parent's CURRENT
+        // answer selects — a metre from another bucket is not an answer here.
+        const control = statControl(key);
+        if (value !== null && control.kind === 'refine') {
+            const options = refineOptions(key, this.value(control.parent));
+            if (options === null || !options.some((o) => o.value === value)) return;
+        }
         // A gesture on GIR — including one that CLEARS it — locks the
         // derivation out for this visit (§3.4b rule 2).
         if (key === 'gir') this.girLocked = true;
@@ -608,8 +736,20 @@ export class StatStep {
             for (const key of STAT_ORDER) {
                 const before = this.draft.get(key);
                 const vis = this.visibility(key);
-                if (vis === 'visible') continue;
-                if (vis === 'contradicted') this.record(key, null);
+                if (vis === 'visible') {
+                    // Bucket coherence for a refine key: the row is on the
+                    // card, but its answer belongs to a bucket the parent no
+                    // longer holds — clear it (on the server too, matching
+                    // `contradicted` semantics).
+                    const control = statControl(key);
+                    const value = this.value(key);
+                    if (control.kind === 'refine' && value !== null) {
+                        const options = refineOptions(key, this.value(control.parent));
+                        if (options === null || !options.some((o) => o.value === value)) {
+                            this.record(key, null);
+                        }
+                    }
+                } else if (vis === 'contradicted') this.record(key, null);
                 else this.draft.delete(key);
                 if (!sameAnswer(before, this.draft.get(key))) changed = true;
             }

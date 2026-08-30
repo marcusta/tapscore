@@ -32,6 +32,7 @@ function round(m: StatMeasures): PlayerRoundStats {
         name: null,
         holeCount: 18,
         measures: m,
+        girArrivalMetres: [],
     };
 }
 
@@ -58,9 +59,24 @@ const FULL = measures({
     firstPuttInside1mResolved: 6,
     puttsTotalInside1mResolved: 7,
     onePuttInside1m: 5,
+    // The exact-metre refinement (064), so the sweeps below cover its cards
+    // too: they are the newest sentences on the sheet and the most likely to
+    // be written without the reader's own denominator.
+    firstPuttMRecordedGir: 4,
+    firstPuttMSumGir: 14,
+    metersMadeSum: 6.5,
+    metersMadeHoles: 4,
+    onePuttsUnmeasured: 1,
+    greenHitLate: 3,
+    chipGirHoles: 3,
+    chipGirOnePutt: 2,
+    chipGirPar5: 2,
+    chipGirPar5OnePutt: 1,
 });
 
-const MODEL = buildDashboardModel([round(FULL)]);
+const MODEL = buildDashboardModel([round(FULL)], undefined, [
+    { firstPuttM: 3, attempts: 5, onePutts: 2, puttsTotal: 9 },
+]);
 
 /** The same round with its tee and par splits scored — the group samples' fixture. */
 const SPLIT_MODEL = buildDashboardModel([
@@ -148,6 +164,13 @@ test('the sentences that left the rows are all still readable, verbatim', () => 
         STATS_COPY.savedInside2m,
         STATS_COPY.missCost,
         STATS_COPY.chipIns,
+        STATS_COPY.proximityOnGir,
+        STATS_COPY.greenAttemptsHit,
+        STATS_COPY.metersMade,
+        STATS_COPY.makeCurve,
+        STATS_COPY.makeCurveWindow,
+        STATS_COPY.chipOnGir,
+        STATS_COPY.chipOnGirPar5,
         STATS_COPY.avgVsParByPar,
         STATS_COPY.bounceBack,
     ]) {
@@ -172,6 +195,8 @@ test('a word the app invented is a card TITLE, verbatim, not a clause inside one
     expect(titles('tee')).toContain('Average vs par, by where the tee shot finished');
     expect(titles('putting')).toContain('Putts per hole, by par');
     expect(titles('scoring')).toContain('Average vs par');
+    expect(titles('putting')).toContain('Holed, by distance');
+    expect(titles('shortGame')).toContain('Chipped on a green in regulation');
 });
 
 test('every denominator a figure row dropped is stated here instead', () => {

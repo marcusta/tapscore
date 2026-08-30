@@ -151,6 +151,14 @@ struct StatsTeePanel: Equatable, Sendable {
 
 struct StatsApproachPanel: Equatable, Sendable {
     var gir: Rate
+    /// Greens reached at any point, in regulation or one shot late. Ball-striking
+    /// separated from position (migration 064): the 120 m third that nails the
+    /// green is not an approach miss, it is a hole that was already behind.
+    var greenAttemptsHit: Rate
+    /// Holes answered `On green` — the fifth green state. The gate for the pair
+    /// above: with none of them, `greenAttemptsHit` IS `gir` and printing both
+    /// would be one fact twice.
+    var greenHitLate: Double
     var girByTee: ByTee<Rate>
     /// Where the first putt was on greens hit — the proximity proxy. Shares of
     /// `girFirstPuttRecorded`, so they sum to 1 across buckets.
@@ -197,7 +205,37 @@ struct StatsPuttingPanel: Equatable, Sendable {
         var id: String { bucket.rawValue }
     }
 
+    /// One exact metre of the make curve. Shaped here rather than in the view:
+    /// `FirstPuttCurvePoint` carries counts, and the one-putt rate a bar draws is
+    /// a division, which belongs on this side of the line.
+    struct CurveRow: Equatable, Sendable, Identifiable {
+        var meters: Double
+        /// One-putts over attempts from exactly this distance.
+        var made: Rate
+        /// Average putts from exactly this distance — the same attempts.
+        var avgPutts: Rate
+        var id: String { StatsFormat.count(meters) }
+    }
+
     var ladder: [Rung]
+    /// Average first-putt distance on the greens you hit — the feature's
+    /// headline (proposal §4). Over the GIR holes with an exact metre recorded,
+    /// which is a narrower cohort than `puttsPerGirHole`'s.
+    var proximityOnGir: Rate
+    /// Metres of first putts holed, summed. A COUNT, not a rate: there is no
+    /// denominator that would make "metres per something" mean anything.
+    var metersMade: Double
+    /// One-putt holes that contributed to `metersMade` — the count that gates
+    /// the figure and the sample its card states.
+    var metersMadeHoles: Double
+    /// One-putts from outside 1 m with no exact metre recorded. They are not in
+    /// `metersMade` and never will be; the card says so rather than letting the
+    /// sum read as the whole story.
+    var onePuttsUnmeasured: Double
+    /// The make curve, ascending, SPARSE — a metre nobody faced has no row.
+    /// Unwindowed by construction: the curve endpoint answers over all history,
+    /// so its info card says so instead of implying the window's rounds.
+    var makeCurve: [CurveRow]
     /// Where the first putt was on EVERY hole with one recorded — the
     /// unconditioned twin of the approach card's `girFirstPuttMix`. The
     /// difference between the two distributions is the short-game proximity
@@ -252,6 +290,12 @@ struct StatsShortGamePanel: Equatable, Sendable {
     /// Up-and-downs from sand. Gated on `scrambleAttemptsBunker`.
     var sandSave: Rate
     var sandSaveAttempts: Double
+    /// Greens reached in regulation THROUGH a short-game shot, converted with
+    /// one putt (migration 064). The par-5 greenside-in-two chip, which every
+    /// scramble cohort is blind to because the green was never missed.
+    var chipOnGir: Rate
+    /// The par-5 split of `chipOnGir` — the up-and-in for birdie.
+    var chipOnGirPar5Birdie: Rate
     /// Effective short-game strokes above one per attempt. A COUNT. The
     /// multi-chip RATES live inside `outcomes` now, per difficulty — the
     /// overall pair the panel used to carry was the coarse version of the
@@ -340,17 +384,30 @@ struct StatsDashboardModel: Equatable, Sendable {
     ///   window waterfall, the priorities and the putting trend, all from the one
     ///   value. Defaults to the shipped v1 constants, so a caller that has not
     ///   resolved a cohort gets exactly today's numbers.
+    /// - Parameter curve: the all-history make-curve rows from
+    ///   `GET /players/me/stats/first-putt-curve`. NOT windowed — the endpoint
+    ///   answers over every round, which the curve's info card states rather
+    ///   than letting the group read as the window's rounds. Empty when the
+    ///   fetch failed or the player has recorded no exact metre; the group is
+    ///   then absent.
     static func build(
-        rows: [PlayerRoundStats], baseline: SgBaselineBundle = SgBaselines.hcp12
+        rows: [PlayerRoundStats], baseline: SgBaselineBundle = SgBaselines.hcp12,
+        curve: [FirstPuttCurveRow] = []
     ) -> StatsDashboardModel {
         let ordered = StatsWindow.sorted(rows)
         guard !ordered.isEmpty else { return .empty }
 
         let totals = StatMeasuresMath.sum(ordered.map(\.measures))
+        // Exact-metre arrivals ride on the ROW, not on `StatMeasures`, so the
+        // window's own cells are a fold of the rows the window selected — the
+        // per-round waterfalls, the window waterfall and the putting trend all
+        // price the same putts the reader is looking at.
         let perRound = ordered.map {
-            StatMeasuresMath.strokesLostV3($0.measures, baseline: baseline)
+            StatMeasuresMath.strokesLostV3(
+                $0.measures, baseline: baseline, girArrivalMetres: arrivalCells([$0]))
         }
-        let windowWaterfall = StatMeasuresMath.strokesLostV3(totals, baseline: baseline)
+        let windowWaterfall = StatMeasuresMath.strokesLostV3(
+            totals, baseline: baseline, girArrivalMetres: arrivalCells(ordered))
 
         return StatsDashboardModel(
             rounds: zip(ordered, perRound).map { row, waterfall in
@@ -378,9 +435,28 @@ struct StatsDashboardModel: Equatable, Sendable {
                 ordered.map { ResultsRow(holeCount: $0.holeCount, measures: $0.measures) }),
             tee: teePanel(totals, roundCount: Double(ordered.count)),
             approach: approachPanel(totals),
-            putting: puttingPanel(totals, baseline: baseline),
+            putting: puttingPanel(totals, baseline: baseline, curve: curve),
             shortGame: shortGamePanel(totals),
             scoring: scoringPanel(totals, roundCount: Double(ordered.count)))
+    }
+
+    // MARK: Exact-metre arrivals
+
+    /// Fold a set of rows' exact-metre GIR arrivals into one cell per metre.
+    ///
+    /// Summed rather than concatenated so `strokesLostV3` prices each metre once
+    /// — the function's own contract is a cell per metre, and a window of forty
+    /// rounds would otherwise hand it forty rows for 3 m.
+    static func arrivalCells(_ rows: [PlayerRoundStats]) -> [SgGirArrivalMetres] {
+        var holesByMeters: [Double: Double] = [:]
+        for row in rows {
+            for cell in row.girArrivalMetres {
+                holesByMeters[cell.meters, default: 0] += cell.holes
+            }
+        }
+        return holesByMeters.keys.sorted().map {
+            SgGirArrivalMetres(meters: $0, holes: holesByMeters[$0]!)
+        }
     }
 
     // MARK: Priorities
@@ -447,11 +523,13 @@ struct StatsDashboardModel: Equatable, Sendable {
         // Oldest first — time runs left to right.
         let chrono = Array(rows.reversed())
 
+        // Takes the ROW, not its measures: the putting series prices exact-metre
+        // arrivals, which live beside the measures rather than inside them.
         func series(
             _ id: String, _ title: String, _ kind: StatsTrendKind,
-            _ value: (StatMeasures) -> Double?
+            _ value: (PlayerRoundStats) -> Double?
         ) -> StatsTrend? {
-            let points = chrono.compactMap { value($0.measures) }
+            let points = chrono.compactMap { value($0) }
             guard points.count >= StatsTrend.minPoints else { return nil }
             return StatsTrend(id: id, title: title, kind: kind, points: points)
         }
@@ -463,17 +541,20 @@ struct StatsDashboardModel: Equatable, Sendable {
 
         return [
             series("fairway", "Fairways", .percentage) {
-                solid(StatMeasuresMath.fairwayRate($0))
+                solid(StatMeasuresMath.fairwayRate($0.measures))
             },
             series("gir", "Greens", .percentage) {
-                solid(StatMeasuresMath.girRate($0))
+                solid(StatMeasuresMath.girRate($0.measures))
             },
-            series("putting", "Putting", .strokesLost) {
+            series("putting", "Putting", .strokesLost) { row in
                 StatMeasuresMath.sgPer18(
-                    StatMeasuresMath.strokesLostV3($0, baseline: baseline), .putting)
+                    StatMeasuresMath.strokesLostV3(
+                        row.measures, baseline: baseline,
+                        girArrivalMetres: arrivalCells([row])),
+                    .putting)
             },
             series("scramble", "Scrambling", .percentage) {
-                solid(StatMeasuresMath.scrambleRate($0).overall)
+                solid(StatMeasuresMath.scrambleRate($0.measures).overall)
             },
         ].compactMap { $0 }
     }
@@ -523,6 +604,8 @@ struct StatsDashboardModel: Equatable, Sendable {
         }
         return StatsApproachPanel(
             gir: StatMeasuresMath.girRate(m),
+            greenAttemptsHit: StatMeasuresMath.greenAttemptsHit(m),
+            greenHitLate: m.greenHitLate,
             girByTee: StatMeasuresMath.girRateByTee(m),
             girFirstPuttMix: mix,
             birdieConversion: StatMeasuresMath.birdieConversion(m),
@@ -542,8 +625,11 @@ struct StatsDashboardModel: Equatable, Sendable {
     ///   Deliberately REQUIRED, with no default: a default is how a call site
     ///   that forgot to thread the reader's selected cohort compiles clean and
     ///   silently prices the ladder against somebody else's reference.
+    /// - Parameter curve: the all-history exact-metre rows. Defaults to none, and
+    ///   the make-curve group is then absent — a caller with no curve in hand
+    ///   (the per-round screen, the home card) draws every other row unchanged.
     static func puttingPanel(
-        _ m: StatMeasures, baseline: SgBaselineBundle
+        _ m: StatMeasures, baseline: SgBaselineBundle, curve: [FirstPuttCurveRow] = []
     ) -> StatsPuttingPanel? {
         guard m.puttsRecorded > 0 || m.firstPuttRecorded > 0 else { return nil }
         let expected = baseline.expected
@@ -563,6 +649,16 @@ struct StatsDashboardModel: Equatable, Sendable {
                             - resolved * expected[bucket]
                         : nil)
             },
+            proximityOnGir: StatMeasuresMath.proximityOnGir(m),
+            metersMade: StatMeasuresMath.metersMade(m),
+            metersMadeHoles: m.metersMadeHoles,
+            onePuttsUnmeasured: m.onePuttsUnmeasured,
+            makeCurve: StatMeasuresMath.firstPuttMakeCurve(curve).map { point in
+                StatsPuttingPanel.CurveRow(
+                    meters: point.meters,
+                    made: StatMeasuresMath.rate(point.onePutts, point.attempts),
+                    avgPutts: point.avgPutts)
+            },
             firstPuttSpread: spread,
             threePutt: StatMeasuresMath.threePuttRate(m),
             threePuttsFromOver8m: StatMeasuresMath.threePuttsFromOver8mRate(m),
@@ -575,7 +671,11 @@ struct StatsDashboardModel: Equatable, Sendable {
     static func shortGamePanel(_ m: StatMeasures) -> StatsShortGamePanel? {
         let attempts =
             m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker
-        guard attempts > 0 else { return nil }
+        // Chip-on-GIR holes are NOT scramble attempts — the green was never
+        // missed — so a window whose only short-game shots were greenside chips
+        // that still made regulation would have had no card at all to put them
+        // on. The gate takes the second cohort too.
+        guard attempts > 0 || m.chipGirHoles > 0 else { return nil }
         // The two buckets that together mean "inside 2m", v2-resolved on both
         // sides so numerator and denominator cover the same holes.
         let made = m.onePuttInside1m + m.onePutt1To2m
@@ -595,6 +695,8 @@ struct StatsDashboardModel: Equatable, Sendable {
                 overall: m.scrambleHoledStandard + m.scrambleHoledHard + m.scrambleHoledBunker),
             sandSave: StatMeasuresMath.sandSaveRate(m),
             sandSaveAttempts: m.scrambleAttemptsBunker,
+            chipOnGir: StatMeasuresMath.chipOnGirRate(m),
+            chipOnGirPar5Birdie: StatMeasuresMath.chipOnGirPar5Birdie(m),
             extraShortGameStrokes: StatMeasuresMath.extraShortGameStrokes(m),
             shortGameStrokesRecorded: m.shortGameStrokesRecorded)
     }

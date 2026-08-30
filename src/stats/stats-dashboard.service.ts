@@ -1,7 +1,7 @@
 import { Computed, di, Signal } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
-import type { PlayerRoundStats } from '../api/player-stats.gen';
+import type { FirstPuttCurvePoint, PlayerRoundStats } from '../api/player-stats.gen';
 import { ProfileService } from '../profile/profile.service';
 import { SG_BASELINES_V1, type SgCohort } from '../round/stat-measures';
 import {
@@ -115,14 +115,29 @@ export class StatsDashboardService {
 
     private pagesFetched = 0;
     private cursor: string | null = null;
+    /**
+     * Bumped by `clear()`. Any in-flight fetch that resolves against an older
+     * generation drops its result rather than reviving a signed-out player's
+     * data.
+     */
+    private generation = 0;
 
     /** The rows the current window covers, newest first. */
     readonly windowRounds = new Computed(() =>
         applyWindow(this.preset.get(), this.filter.get(), this.loadedRounds.get(), new Date()),
     );
 
+    /**
+     * The make curve, CAREER-WIDE and separately fetched: the endpoint takes no
+     * window, because a few rounds hold too few putts from any one metre to
+     * read. Empty until it lands, and empty forever if it fails — the curve is
+     * one section of one card, and losing it must not cost the dashboard its
+     * rows or put a banner over them.
+     */
+    readonly curveRows = new Signal<FirstPuttCurvePoint[]>([]);
+
     readonly model = new Computed(() =>
-        buildDashboardModel(this.windowRounds.get(), this.sgBundle.get()),
+        buildDashboardModel(this.windowRounds.get(), this.sgBundle.get(), this.curveRows.get()),
     );
 
     /** Courses the FETCHED rows mention — the filter panel's list. */
@@ -165,7 +180,31 @@ export class StatsDashboardService {
         this.cursor = page.nextCursor;
         this.hasMore.set(page.nextCursor !== null);
         this.loaded.set(true);
+        // Deliberately NOT awaited: the curve is one section of one card, and
+        // paging the window is what the screen is waiting on. A slow curve
+        // route must not hold the older pages behind it.
+        void this.loadCurve();
         await this.extendIfNeeded();
+    }
+
+    /**
+     * Fetch the career make curve. Swallows its own failure: see `curveRows`.
+     * An older server without the route answers 404, which is the same case.
+     *
+     * Guarded by the load generation, which `clear()` bumps: a sign-out while
+     * this request is in flight must not be undone by the response landing
+     * after it.
+     */
+    private async loadCurve(): Promise<void> {
+        const generation = this.generation;
+        let rows: FirstPuttCurvePoint[];
+        try {
+            rows = await api.playerStats.myFirstPuttCurve();
+        } catch {
+            rows = [];
+        }
+        if (generation !== this.generation) return;
+        this.curveRows.set(rows);
     }
 
     /** Switch window; persists the choice and pages if the new window needs it. */
@@ -290,6 +329,7 @@ export class StatsDashboardService {
     /** Forget everything (sign-out) — the next login starts clean. */
     clear(): void {
         this.loadedRounds.set([]);
+        this.curveRows.set([]);
         this.roundsWithStats.set(null);
         this.hasMore.set(false);
         this.loaded.set(false);
@@ -298,6 +338,7 @@ export class StatsDashboardService {
         this.filter.set(EMPTY_FILTER);
         this.pagesFetched = 0;
         this.cursor = null;
+        this.generation += 1;
     }
 
     /** Append, de-duplicating on round id — a cursor page can overlap. */

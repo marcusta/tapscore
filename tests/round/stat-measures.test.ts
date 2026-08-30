@@ -12,6 +12,7 @@ import {
     DEFAULT_SG_BASELINE,
     DOUBLE_CAUSES,
     EXPECTED_PUTTS_V1,
+    EXPECTED_PUTTS_V2,
     INSIGHT_BEST_PUTTING_MIN_WINDOW,
     MIN_ATTRIBUTED_FOR_DELTA,
     MIN_RATE_DENOMINATOR,
@@ -68,6 +69,14 @@ import {
     sandSaveRate,
     scrambleRate,
     cohortForHandicap,
+    chipOnGirPar5Birdie,
+    chipOnGirRate,
+    expectedPuttsV2,
+    firstPuttBucketForMeters,
+    firstPuttMakeCurve,
+    greenAttemptsHit,
+    metersMade,
+    proximityOnGir,
     sgPer18,
     sgTotalPer18,
     strokesLostV3,
@@ -82,6 +91,7 @@ import {
     troubleRate,
     troubleTaxPerHole,
     vsParByPenalty,
+    type FirstPuttCurveRow,
     type InsightId,
     type ResultsRow,
     type StrokesLost,
@@ -274,6 +284,10 @@ const WORKED_EXAMPLE: StatMeasures = measures({
     strokesVsParMissStandard: 2,
     holesScoredMissHard: 1,
     strokesVsParMissHard: -1,
+    // Migration 064: the two inside-1m one-putts (H2, H5) are priced at 0.5 m
+    // each in meters made; nothing else in the example touches the new columns.
+    metersMadeSum: 1,
+    metersMadeHoles: 2,
 });
 
 /**
@@ -775,6 +789,18 @@ const SWEEP: StatMeasures = {
     dblPenaltyApproach: 212,
     dblPenaltyShort: 213,
     dblPenaltyUnknown: 214,
+    firstPuttMRecorded: 215,
+    firstPuttMSum: 216,
+    firstPuttMRecordedGir: 217,
+    firstPuttMSumGir: 218,
+    metersMadeSum: 219,
+    metersMadeHoles: 220,
+    onePuttsUnmeasured: 221,
+    greenHitLate: 222,
+    chipGirHoles: 223,
+    chipGirOnePutt: 224,
+    chipGirPar5: 225,
+    chipGirPar5OnePutt: 226,
 };
 
 test('every measure column is additive, including the ones no rate reads', () => {
@@ -782,8 +808,8 @@ test('every measure column is additive, including the ones no rate reads', () =>
     // The count is asserted (and mirrored in the Swift twin) so that a field
     // added to the server's measure set and forgotten here is caught, rather
     // than sweeping a smaller set and passing.
-    expect(keys).toHaveLength(214);
-    expect(new Set(Object.values(SWEEP)).size).toBe(214);
+    expect(keys).toHaveLength(226);
+    expect(new Set(Object.values(SWEEP)).size).toBe(226);
 
     // Key-by-key rather than spot checks: a column missing from `addMeasures`
     // would read as its first round's value forever, and only a full sweep sees
@@ -2426,6 +2452,281 @@ test('the bunker chip baseline sits between standard and hard', () => {
     expect(CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY.bunker).toBe(CHIP_EXPECTED_PUTTS_V1);
 });
 
+// --- Short game on the green side of the cohort (migration 064) ---------------
+
+/**
+ * A par 4 hit in regulation whose recorded 1-stroke chip (a fringe bump) rides
+ * in the effective sum with NO miss count: the server's 064 view charges
+ * recorded chip strokes on gir = 1 holes into `att_sg_strokes_effective_*`
+ * without touching `att_miss_*`.
+ */
+const GIR_CHIP_HOLE: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar45Gir: 1,
+    attStrokes: 4,
+    attPutts: 1,
+    attFairwayPar4: 1,
+    attGirFirstPutt1To2m: 1,
+    attSgStrokesEffectiveStandard: 1,
+});
+
+test('a chip on a green hit charges short game, not the approach residual', () => {
+    const w = strokesLostV3(GIR_CHIP_HOLE);
+    // No miss, no chip-outcome buckets, no baseline: shortGame is exactly the
+    // one counted stroke.
+    expect(w.shortGame).toBeCloseTo(1, 9);
+    expect(Math.abs(telescopes(w) - w.total!)).toBeLessThan(1e-9);
+    expect(w.coverage).toEqual({ attributed: 1, holesScored: 1 });
+
+    // Against the pre-064 view of the same hole (the chip stroke left in the
+    // residual): exactly one stroke moves from approach to short game, and
+    // nothing else moves at all.
+    const residual = strokesLostV3(
+        measures({ ...GIR_CHIP_HOLE, attSgStrokesEffectiveStandard: 0 }),
+    );
+    expect(residual.shortGame).toBeCloseTo(0, 9);
+    expect(residual.approach! - w.approach!).toBeCloseTo(1, 9);
+    expect(residual.tee).toBeCloseTo(w.tee!, 9);
+    expect(residual.putting).toBeCloseTo(w.putting!, 9);
+    expect(residual.total).toBeCloseTo(w.total!, 9);
+    expect(Math.abs(telescopes(residual) - residual.total!)).toBeLessThan(1e-9);
+});
+
+/**
+ * A hit_late hole as the 064 view counts it: on the GREEN side of the cohort
+ * partition, an arrival bucket, and zero short-game strokes — three to the
+ * green then two putts on a par 4.
+ */
+const HIT_LATE_HOLE: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar45Gir: 1,
+    attStrokes: 5,
+    attPutts: 2,
+    attFairwayPar4: 1,
+    attGirFirstPutt2To4m: 1,
+});
+
+test('a hit_late hole telescopes with zero short-game contribution', () => {
+    const w = strokesLostV3(HIT_LATE_HOLE);
+    expect(w.coverage).toEqual({ attributed: 1, holesScored: 1 });
+    expect(w.shortGame).toBeCloseTo(0, 9);
+    // The extra stroke to the green sits in approach: strip the putts and the
+    // modeled tee stroke from the 5 and two swings remain where the reference
+    // priced one.
+    expect(w.approach).toBeGreaterThan(0);
+    expect(w.penalties).toBe(0);
+    expect(Math.abs(telescopes(w) - w.total!)).toBeLessThan(1e-9);
+});
+
+// --- Exact first-putt metres (migration 064) -----------------------------------
+
+test('EXPECTED_PUTTS_V2 is frozen at the interpolated vocabulary and monotone', () => {
+    // The 19 refine values ("20+" stores 20), each with its interpolated price.
+    expect(EXPECTED_PUTTS_V2.map((e) => [e.meters, e.putts])).toEqual([
+        [0.3, 1.03],
+        [0.5, 1.05],
+        [0.8, 1.17],
+        [1, 1.25],
+        [1.5, 1.45],
+        [2, 1.58],
+        [2.5, 1.72],
+        [3, 1.85],
+        [3.5, 1.89],
+        [4, 1.93],
+        [5, 2.02],
+        [6, 2.1],
+        [7, 2.15],
+        [8, 2.2],
+        [10, 2.3],
+        [12, 2.4],
+        [14, 2.5],
+        [16, 2.6],
+        [20, 2.8],
+    ]);
+    expect(Object.isFrozen(EXPECTED_PUTTS_V2)).toBe(true);
+    for (const entry of EXPECTED_PUTTS_V2) expect(Object.isFrozen(entry)).toBe(true);
+
+    // Strictly increasing in both columns: a longer putt is never cheaper.
+    for (let i = 1; i < EXPECTED_PUTTS_V2.length; i++) {
+        expect(EXPECTED_PUTTS_V2[i]!.meters).toBeGreaterThan(EXPECTED_PUTTS_V2[i - 1]!.meters);
+        expect(EXPECTED_PUTTS_V2[i]!.putts).toBeGreaterThan(EXPECTED_PUTTS_V2[i - 1]!.putts);
+    }
+});
+
+test('v2 agrees with the frozen v1 anchors at the bucket midpoints and boundaries', () => {
+    // The interpolation anchors ARE the v1 values: at each bucket's
+    // representative distance the two tables answer identically.
+    expect(expectedPuttsV2(0.5)).toBe(EXPECTED_PUTTS_V1.inside_1m);
+    expect(expectedPuttsV2(1.5)).toBe(EXPECTED_PUTTS_V1['1_to_2m']);
+    expect(expectedPuttsV2(3)).toBe(EXPECTED_PUTTS_V1['2_to_4m']);
+    expect(expectedPuttsV2(6)).toBe(EXPECTED_PUTTS_V1['4_to_8m']);
+    expect(expectedPuttsV2(12)).toBe(EXPECTED_PUTTS_V1.over_8m);
+
+    // At each bucket boundary the value sits strictly between the two adjacent
+    // anchors — the refinement redistributes within a bucket, it never jumps
+    // outside the anchors it was drawn from.
+    const boundaries: [number, number, number][] = [
+        [1, EXPECTED_PUTTS_V1.inside_1m, EXPECTED_PUTTS_V1['1_to_2m']],
+        [2, EXPECTED_PUTTS_V1['1_to_2m'], EXPECTED_PUTTS_V1['2_to_4m']],
+        [4, EXPECTED_PUTTS_V1['2_to_4m'], EXPECTED_PUTTS_V1['4_to_8m']],
+        [8, EXPECTED_PUTTS_V1['4_to_8m'], EXPECTED_PUTTS_V1.over_8m],
+    ];
+    for (const [meters, below, above] of boundaries) {
+        expect(expectedPuttsV2(meters)).toBeGreaterThan(below);
+        expect(expectedPuttsV2(meters)).toBeLessThan(above);
+    }
+});
+
+test('the v2 lookup answers off-vocabulary metres with the nearest value, ties short', () => {
+    // The vocabulary is closed, so these are Postel cases, not expected input.
+    expect(expectedPuttsV2(0.35)).toBe(1.03); // nearest is 0.3
+    expect(expectedPuttsV2(9)).toBe(2.2); // exact tie between 8 and 10 → shorter
+    expect(expectedPuttsV2(25)).toBe(2.8); // beyond the table → its last row
+});
+
+test('each bucket owns its upper edge in the metre-to-bucket map', () => {
+    expect(firstPuttBucketForMeters(0.3)).toBe('inside_1m');
+    expect(firstPuttBucketForMeters(0.8)).toBe('inside_1m');
+    expect(firstPuttBucketForMeters(1)).toBe('1_to_2m');
+    expect(firstPuttBucketForMeters(2)).toBe('1_to_2m');
+    expect(firstPuttBucketForMeters(2.5)).toBe('2_to_4m');
+    expect(firstPuttBucketForMeters(4)).toBe('2_to_4m');
+    expect(firstPuttBucketForMeters(5)).toBe('4_to_8m');
+    expect(firstPuttBucketForMeters(8)).toBe('4_to_8m');
+    expect(firstPuttBucketForMeters(10)).toBe('over_8m');
+    expect(firstPuttBucketForMeters(20)).toBe('over_8m');
+    // Every vocabulary value maps into the bucket whose refine row offers it.
+    for (const entry of EXPECTED_PUTTS_V2) {
+        expect(PUTT_BUCKETS).toContain(firstPuttBucketForMeters(entry.meters));
+    }
+});
+
+test('a metre-refined arrival moves strokes between putting and approach, and the telescope still closes', () => {
+    // I1's single GIR hole arrived in `4_to_8m`. Refining it to exactly 5 m
+    // (v2 2.02 against the 2.10 anchor — 6 m is deliberately NOT used, because
+    // v2(6) equals the anchor and would make the refinement invisible) lowers
+    // the expected arrival by 0.08: approach drops by it, putting absorbs it,
+    // and nothing else moves.
+    const base = strokesLostV3(I1_PAR4_GIR);
+    const refined = strokesLostV3(
+        I1_PAR4_GIR,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [{ meters: 5, holes: 1 }],
+    );
+    expect(refined.approach! - base.approach!).toBeCloseTo(-0.08, 9);
+    expect(refined.putting! - base.putting!).toBeCloseTo(0.08, 9);
+    expect(refined.tee).toBeCloseTo(base.tee!, 9);
+    expect(refined.shortGame).toBeCloseTo(base.shortGame!, 9);
+    expect(refined.penalties).toBe(base.penalties!);
+    expect(refined.total).toBeCloseTo(base.total!, 9);
+    expect(Math.abs(telescopes(refined) - refined.total!)).toBeLessThan(1e-9);
+
+    // A metre that IS its bucket's anchor refines to a no-op under the default
+    // table.
+    expect(
+        strokesLostV3(I1_PAR4_GIR, undefined, undefined, undefined, undefined, [
+            { meters: 6, holes: 1 },
+        ]),
+    ).toEqual(base);
+
+    // The bundle entry point forwards the refinement unchanged.
+    expect(
+        strokesLostForBundle(I1_PAR4_GIR, DEFAULT_SG_BASELINE, [{ meters: 5, holes: 1 }]),
+    ).toEqual(refined);
+});
+
+test('the telescope survives metre refinement under every cohort bundle', () => {
+    const cells = [
+        { meters: 0.5, holes: 1 },
+        { meters: 3.5, holes: 2 },
+        { meters: 16, holes: 1 },
+    ];
+    for (const m of COHORT_FIXTURES) {
+        for (const cohort of SG_COHORTS) {
+            const w = strokesLostForBundle(m, SG_BASELINES_V1[cohort], cells);
+            expect(Math.abs(telescopes(w) - w.total!)).toBeLessThan(1e-9);
+        }
+    }
+});
+
+/**
+ * The 064 rate helpers over one hand-checkable window: six GIR answers, three
+ * hit, one hit late; three GIR holes with exact metres summing 16.5 m; two
+ * GIR-chip holes, one converted, the par-5 one converted.
+ */
+const METRES_EXAMPLE: StatMeasures = measures({
+    girRecorded: 6,
+    girHits: 3,
+    greenHitLate: 1,
+    firstPuttMRecorded: 4,
+    firstPuttMSum: 21.5,
+    firstPuttMRecordedGir: 3,
+    firstPuttMSumGir: 16.5,
+    metersMadeSum: 4.5,
+    metersMadeHoles: 3,
+    onePuttsUnmeasured: 1,
+    chipGirHoles: 2,
+    chipGirOnePutt: 1,
+    chipGirPar5: 1,
+    chipGirPar5OnePutt: 1,
+});
+
+test('proximity on GIR averages the recorded metres, and only those', () => {
+    // 16.5 m over the THREE metre-recorded GIR holes, not over all six GIR
+    // answers: bucket-only holes are coverage, not zeroes.
+    expect(proximityOnGir(METRES_EXAMPLE)).toEqual({ value: 5.5, n: 16.5, d: 3 });
+    expect(proximityOnGir(ZERO_MEASURES)).toEqual({ value: null, n: 0, d: 0 });
+});
+
+test('meters made passes the server sum through without re-adding the 0.5 credit', () => {
+    // The worked example's two inside-1m one-putts carry no metres; the SERVER
+    // already priced them at 0.5 m each into `metersMadeSum`. The helper must
+    // return exactly that 1, not 2 — adding the credit again is the bug this
+    // test pins out.
+    expect(metersMade(WORKED_EXAMPLE)).toBe(1);
+    expect(metersMade(METRES_EXAMPLE)).toBe(4.5);
+    expect(metersMade(ZERO_MEASURES)).toBe(0);
+});
+
+test('green attempts hit counts GIR and hit-late over the resolved denominator', () => {
+    // 3 GIR + 1 hit-late over the 6 holes with a green answer.
+    expect(greenAttemptsHit(METRES_EXAMPLE)).toEqual({ value: 4 / 6, n: 4, d: 6 });
+    // Without hit-late holes it degrades to plain GIR.
+    expect(greenAttemptsHit(WORKED_EXAMPLE)).toEqual({ value: 0.6, n: 3, d: 5 });
+    expect(greenAttemptsHit(ZERO_MEASURES)).toEqual({ value: null, n: 0, d: 0 });
+});
+
+test('chip on GIR converts over resolved chip holes, with its par-5 birdie split', () => {
+    expect(chipOnGirRate(METRES_EXAMPLE)).toEqual({ value: 0.5, n: 1, d: 2 });
+    expect(chipOnGirPar5Birdie(METRES_EXAMPLE)).toEqual({ value: 1, n: 1, d: 1 });
+    expect(chipOnGirRate(ZERO_MEASURES)).toEqual({ value: null, n: 0, d: 0 });
+    expect(chipOnGirPar5Birdie(ZERO_MEASURES)).toEqual({ value: null, n: 0, d: 0 });
+});
+
+test('the make curve folds sparse per-round rows into one ascending point per metre', () => {
+    const rows: FirstPuttCurveRow[] = [
+        // Round 1: two putts from 2 m (one dropped), a 0.5 m tap-in.
+        { firstPuttM: 2, attempts: 2, onePutts: 1, puttsTotal: 3 },
+        { firstPuttM: 0.5, attempts: 1, onePutts: 1, puttsTotal: 1 },
+        // Round 2: another 2 m attempt, and a 10 m three-putt.
+        { firstPuttM: 2, attempts: 1, onePutts: 0, puttsTotal: 2 },
+        { firstPuttM: 10, attempts: 1, onePutts: 0, puttsTotal: 3 },
+    ];
+    expect(firstPuttMakeCurve(rows)).toEqual([
+        { meters: 0.5, attempts: 1, onePutts: 1, avgPutts: { value: 1, n: 1, d: 1 } },
+        // The two rounds' 2 m rows sum BEFORE the rate forms: 5 putts over 3.
+        { meters: 2, attempts: 3, onePutts: 1, avgPutts: { value: 5 / 3, n: 5, d: 3 } },
+        { meters: 10, attempts: 1, onePutts: 0, avgPutts: { value: 3, n: 3, d: 1 } },
+    ]);
+    // Sparse means sparse: unattempted metres get no point, and no rows means
+    // no curve — never a vocabulary of zeroes.
+    expect(firstPuttMakeCurve(rows).map((p) => p.meters)).toEqual([0.5, 2, 10]);
+    expect(firstPuttMakeCurve([])).toEqual([]);
+});
+
 // --- Where the doubles come from (migration 063) ------------------------------
 //
 // The TS half of a classifier that exists twice: this function and the
@@ -2463,6 +2764,7 @@ function holeRow(
             gir: null,
             greenMissDir: null,
             firstPutt: null,
+            firstPuttM: null,
             putts: null,
             shortGameDifficulty: null,
             shortGameStrokes: null,

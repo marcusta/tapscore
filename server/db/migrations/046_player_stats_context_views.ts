@@ -157,14 +157,20 @@ export async function createPlayerStatsV3Views(db: Kysely<any>): Promise<void> {
                 -- 'first_putt IS NULL' satisfies the coherence guard on its own,
                 -- and it is what separates a hole-out from the contradiction
                 -- (a bucket AND zero putts) the other families discard.
+                -- The hit_late guard (migration 064): 'hit_late' says no chip
+                -- happened, so a stale difficulty alongside it is contradicted
+                -- data — same rule 043 applies at its hole-CTE boundary.
                 COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'standard'
+                     AND (green_miss_dir IS NULL OR green_miss_dir <> 'hit_late')
                      AND putts = 0 AND first_putt IS NULL
                      THEN 1 END) AS scramble_holed_standard,
                 COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'hard'
+                     AND (green_miss_dir IS NULL OR green_miss_dir <> 'hit_late')
                      AND putts = 0 AND first_putt IS NULL
                      THEN 1 END) AS scramble_holed_hard,
                 -- The bunker leg (migration 055). Same shape, third literal.
                 COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'bunker'
+                     AND (green_miss_dir IS NULL OR green_miss_dir <> 'hit_late')
                      AND putts = 0 AND first_putt IS NULL
                      THEN 1 END) AS scramble_holed_bunker
             FROM player_hole_stats

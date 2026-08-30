@@ -42,6 +42,7 @@ function row(id: string, date: string, m: StatMeasures = ZERO_MEASURES): PlayerR
         name: null,
         holeCount: 18,
         measures: m,
+        girArrivalMetres: [],
     };
 }
 

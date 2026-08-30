@@ -21,7 +21,11 @@ import {
     signedNumber,
     taxSample,
     troubleTaxSample,
+    formatMeters,
+    formatMetersTotal,
+    metersTitle,
     UNIT_GREENS,
+    UNIT_MEASURED_GREENS,
     UNIT_ROUNDS,
     venueTitle,
     vsPar,
@@ -144,6 +148,21 @@ test('bucket, venue and round type titles', () => {
     expect(bucketTitle('over_8m')).toBe('Over 8 m');
     expect(venueTitle('indoor')).toBe('Indoor');
     expect(roundTypeTitle('front_9')).toBe('Front 9');
+});
+
+test('metres read in the refine vocabulary, with the top value as an open band', () => {
+    // The tap stores 20 for "20+", so 20 is the only metre that prints as a
+    // band: a curve row saying "20 m" would claim a distance nobody chose.
+    expect(metersTitle(0.5)).toBe('0.5 m');
+    expect(metersTitle(3)).toBe('3 m');
+    expect(metersTitle(20)).toBe('20 m+');
+    // An average carries its unit and stays absent at a zero denominator.
+    expect(formatMeters(rate(14, 4))).toBe('3.5 m');
+    expect(formatMeters(rate(0, 0))).toBeNull();
+    // A SUM is not a rate: it prints whole, and 0 m is a real answer for it.
+    expect(formatMetersTotal(6.5)).toBe('6.5 m');
+    expect(quantity(1, UNIT_MEASURED_GREENS)).toBe('1 green hit with the metres recorded');
+    expect(quantity(4, UNIT_MEASURED_GREENS)).toBe('4 greens hit with the metres recorded');
 });
 
 // --- Tax samples (wave 3) -----------------------------------------------------

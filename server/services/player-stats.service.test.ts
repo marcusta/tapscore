@@ -231,6 +231,7 @@ test('a hole commit projects into one typed row per (hole, player)', async () =>
             item({ playHoleId: h1, playerId: player.id, key: 'gir', value: '0' }),
             item({ playHoleId: h1, playerId: player.id, key: 'green_miss_dir', value: 'short' }),
             item({ playHoleId: h1, playerId: player.id, key: 'first_putt', value: '2_to_4m' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'first_putt_m', value: '3.5' }),
             item({ playHoleId: h1, playerId: player.id, key: 'putts', value: '2' }),
             item({ playHoleId: h1, playerId: player.id, key: 'short_game_difficulty', value: 'bunker' }),
             item({ playHoleId: h1, playerId: player.id, key: 'short_game_strokes', value: '2' }),
@@ -239,16 +240,16 @@ test('a hole commit projects into one typed row per (hole, player)', async () =>
             item({ playHoleId: h1, playerId: player.id, key: 'recovery_ok', value: '1' }),
         ],
     });
-    expect(res.events).toHaveLength(11);
+    expect(res.events).toHaveLength(12);
     expect(res.events.every((e) => e.inserted)).toBe(true);
     // seq is the total order and it is global + strictly increasing.
     const seqs = res.events.map((e) => e.event.seq);
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
-    expect(new Set(seqs).size).toBe(11);
+    expect(new Set(seqs).size).toBe(12);
 
-    // All ELEVEN keys — every capture-v2 key round-trips through append into
-    // its own projection column, and `short_game_strokes` arrives as a NUMBER
-    // (the trigger CASTs it) while the three new enums stay text.
+    // All TWELVE keys — every capture key round-trips through append into its
+    // own projection column, and `short_game_strokes` and `first_putt_m`
+    // arrive as NUMBERS (the trigger CASTs them) while the enums stay text.
     const rows = await ctx.playerStatsService.statsForRound(roundId);
     expect(rows).toEqual([
         {
@@ -260,6 +261,7 @@ test('a hole commit projects into one typed row per (hole, player)', async () =>
             gir: false,
             greenMissDir: 'short',
             firstPutt: '2_to_4m',
+            firstPuttM: 3.5,
             putts: 2,
             shortGameDifficulty: 'bunker',
             shortGameStrokes: 2,
@@ -938,6 +940,50 @@ test('the server enforces the vocabulary and never a prompt PRECONDITION', async
     expect(row.gir).toBe(true);
     expect(row.greenMissDir).toBe('left');
     expect(row.penaltySource).toBe('tee');
+});
+
+test('the migration-064 vocabulary: hit_late and the nineteen metre values', async () => {
+    const { ctx, player, roundId, hole } = await soloRound();
+    const h1 = hole(1);
+
+    // The fifth green answer is a CURRENT value, accepted like the four
+    // directions. The metre value is TEXT exactly as the chip shows it — the
+    // trigger CASTs it into the projection's REAL column, so '3.5' comes back
+    // as the number 3.5 and '20' (the "20+" chip) as 20.
+    await ctx.playerStatsService.appendEvents({
+        roundId,
+        items: [
+            item({ playHoleId: h1, playerId: player.id, key: 'green_miss_dir', value: 'hit_late' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'first_putt_m', value: '20' }),
+        ],
+    });
+    const row = (await ctx.playerStatsService.statsForRound(roundId))[0]!;
+    expect(row.greenMissDir).toBe('hit_late');
+    expect(row.firstPuttM).toBe(20);
+
+    // The set is CLOSED: a metre value between two chips is not an answer,
+    // and neither is a locale-formatted one. Bucket coherence (the value
+    // belonging to the selected first_putt bucket) is deliberately NOT here —
+    // it is a client-model rule, like every other precondition.
+    for (const value of ['9', '3,5', '0.4', '25', '']) {
+        const bad = await refusal(() =>
+            ctx.playerStatsService.appendEvents({
+                roundId,
+                items: [
+                    item({ playHoleId: h1, playerId: player.id, key: 'first_putt_m', value }),
+                ],
+            }),
+        );
+        expect(bad).toMatchObject({ code: 'stat_invalid_value', key: 'first_putt_m' });
+    }
+
+    // null CLEARS — the contradicted-on-save path when the bucket changes
+    // after a metre value was persisted.
+    await ctx.playerStatsService.appendEvents({
+        roundId,
+        items: [item({ playHoleId: h1, playerId: player.id, key: 'first_putt_m', value: null })],
+    });
+    expect((await ctx.playerStatsService.statsForRound(roundId))[0]!.firstPuttM).toBeNull();
 });
 
 // --- The prompt set ------------------------------------------------------------

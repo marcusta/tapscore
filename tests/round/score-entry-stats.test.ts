@@ -153,6 +153,69 @@ test('Umbrella gives opt-out players only GIR after an opted-in player completes
     component.destroy();
 });
 
+// A screen reader must hear which chip is chosen, not just see the tint. The
+// chips are toggle buttons (aria-pressed), not radios: tap-again-to-deselect
+// makes "no selection" a legal state, which role=radio cannot express.
+test('stat chips carry aria-pressed that follows select and deselect', () => {
+    const service = new RoundViewService(new PendingScoreQueue(null), new PendingStatQueue(null));
+    fixture(service);
+    di.set(RoundViewService, service);
+
+    const component = new ScoreEntryComponent();
+    component.mount(document.body);
+    click(document.querySelector('.se-row__circle'));
+    click(scoreKey('4'));
+
+    const girGroup = [...document.querySelectorAll('.se-stats__group')].find(
+        (g) => g.querySelector('[bind="glabel"]')?.textContent === 'Green in regulation',
+    )!;
+    const segs = [...girGroup.querySelectorAll('[bind="seg"] .se-seg')];
+    expect(segs.length).toBe(2);
+    // Untouched: nothing pressed.
+    for (const seg of segs) expect(seg.getAttribute('aria-pressed')).toBe('false');
+
+    const hit = segs.find((s) => s.textContent === 'Hit')!;
+    const miss = segs.find((s) => s.textContent === 'Miss')!;
+    click(hit);
+    expect(hit.getAttribute('aria-pressed')).toBe('true');
+    expect(miss.getAttribute('aria-pressed')).toBe('false');
+
+    // The visual state and the spoken state are the same fact.
+    expect(hit.className).toContain('on-neutral');
+
+    // Tap again de-selects: back to "did not answer", spoken as un-pressed.
+    click(hit);
+    for (const seg of segs) expect(seg.getAttribute('aria-pressed')).toBe('false');
+    component.destroy();
+});
+
+// The format's own Miss/Hit pair has the same duty. Its default is Miss (a
+// boolean metadata answer, not a stat), so Miss is pressed from the start.
+test('format meta chips carry aria-pressed mirroring the tinted chip', () => {
+    const service = new RoundViewService(new PendingScoreQueue(null), new PendingStatQueue(null));
+    fixture(service);
+    di.set(RoundViewService, service);
+
+    const component = new ScoreEntryComponent();
+    component.mount(document.body);
+    click(document.querySelector('.se-row__circle'));
+    // Score player one and step past their stat card; player two has no stats
+    // opt-in, so their card shows the format's GIR chip pair.
+    click(scoreKey('4'));
+    click(document.querySelector('[bind="statsNext"]'));
+    click(scoreKey('4'));
+
+    const miss = document.querySelector('[bind="miss"]')!;
+    const hit = document.querySelector('[bind="hit"]')!;
+    expect(miss.getAttribute('aria-pressed')).toBe('true');
+    expect(hit.getAttribute('aria-pressed')).toBe('false');
+
+    click(hit);
+    expect(miss.getAttribute('aria-pressed')).toBe('false');
+    expect(hit.getAttribute('aria-pressed')).toBe('true');
+    component.destroy();
+});
+
 // Capture v2, §D.4: explanation lives behind ONE worded trigger. The cards on
 // the step stay wordless, and no prompt grows a glyph.
 test('the stats step carries a worded explainer trigger, not a paragraph per row', () => {

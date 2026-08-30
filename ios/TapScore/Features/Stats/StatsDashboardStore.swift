@@ -88,6 +88,17 @@ final class StatsDashboardStore {
     /// The server has more history than has been fetched.
     private(set) var hasMore = false
 
+    /// The exact-metre make curve, from its own endpoint.
+    ///
+    /// UNWINDOWED, and deliberately so: the curve is a cross-tab over every
+    /// round, with no round key on the wire to select by. It is fetched once per
+    /// `load()`, is never re-fetched when the window moves, and the card that
+    /// draws it says which sample it is over. A failure here is NOT fatal — the
+    /// dashboard is a page of measures the curve is one group of, and blanking
+    /// the screen because one extra request failed throws away every correct
+    /// number beside it.
+    private(set) var firstPuttCurve: [FirstPuttCurveRow] = []
+
     private let api: TapScoreAPI
     private let defaults: UserDefaults
     private let now: @Sendable () -> Date
@@ -104,6 +115,12 @@ final class StatsDashboardStore {
     /// Pages spent against `maxPages` since the last full `load()`. Counts the
     /// first page too — it is one request against the same phone.
     private(set) var pagesFetched = 0
+
+    /// Bumped by every `load()`. The curve is a second request that outlives the
+    /// page fetch, so it carries the epoch it started in and drops its answer if
+    /// a newer load has begun — otherwise a slow first load could land its curve
+    /// after a fast reload's.
+    private var loadEpoch = 0
 
     init(
         api: TapScoreAPI,
@@ -133,7 +150,8 @@ final class StatsDashboardStore {
     /// few hundred rows of integer columns, and a cached model is a cache to
     /// invalidate on every one of the four things that can change it.
     var model: StatsDashboardModel {
-        StatsDashboardModel.build(rows: windowRounds, baseline: baseline.bundle)
+        StatsDashboardModel.build(
+            rows: windowRounds, baseline: baseline.bundle, curve: firstPuttCurve)
     }
 
     /// The baseline in force — the choice, the handicap it was resolved with, and
@@ -167,9 +185,12 @@ final class StatsDashboardStore {
         loadedRounds = []
         roundsWithStats = nil
         hasMore = false
+        firstPuttCurve = []
         // The one place the budget is refilled: a deliberate reload is the
         // player asking for the walk again.
         pagesFetched = 0
+        loadEpoch &+= 1
+        let epoch = loadEpoch
         do {
             let page = try await fetch(cursor: nil)
             // Only the first page carries the aggregate — later ones answer null
@@ -181,7 +202,30 @@ final class StatsDashboardStore {
             phase = Self.phase(for: error)
             return
         }
+        await loadCurve(epoch: epoch)
         await extendIfNeeded()
+    }
+
+    /// The make curve, on its own request and its own failure rule.
+    ///
+    /// Not counted against `maxPages`: that budget bounds a paging LOOP, and
+    /// this is one request that cannot repeat. Errors are swallowed on purpose —
+    /// there is no `extendProblem`-style note for it, because an absent group is
+    /// already the app's language for "nothing recorded here" and a banner about
+    /// a group the reader may never scroll to is noise.
+    /// `epoch` is the load this fetch belongs to. A second `load()` while this
+    /// one is in flight bumps it, and the older answer is then dropped rather
+    /// than landing last over the newer one.
+    private func loadCurve(epoch: Int) async {
+        guard let rows = try? await api.send(PlayerStatsEndpoints.myFirstPuttCurve) else {
+            return
+        }
+        guard epoch == loadEpoch else { return }
+        firstPuttCurve = rows.map {
+            FirstPuttCurveRow(
+                firstPuttM: $0.firstPuttM, attempts: $0.attempts, onePutts: $0.onePutts,
+                puttsTotal: $0.puttsTotal)
+        }
     }
 
     private static func phase(for error: any Error) -> Phase {

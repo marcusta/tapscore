@@ -59,17 +59,18 @@ final class StatPromptsTests: XCTestCase {
             par: 4)
         s.answer(.teeResult, value: "trouble")
         s.answer(.gir, value: "0")
-        // The penalty is ANSWERED, not merely offered: `penalty_source` hangs
-        // off a non-zero penalty, so leaving it unanswered would leave the
-        // eleventh prompt contradicted and the order assertion below untrue.
+        // `penalty_source` hangs off an ANSWERED penalty count, and
+        // `first_putt_m` off a selected fine bucket, so the maximal card is
+        // only reachable once both parents carry an answer.
         s.step(.penalties, by: 1)
-        // The worst case wave 4 names: eleven inputs on a par 4.
+        s.answer(.firstPutt, value: "2_to_4m")
+        // The worst case: twelve inputs on a par 4.
         XCTAssertEqual(
             keys(s),
             [
                 .teeResult, .teeMissDir, .recoveryOk, .gir, .greenMissDir,
-                .shortGameDifficulty, .shortGameStrokes, .firstPutt, .putts, .penalties,
-                .penaltySource,
+                .shortGameDifficulty, .shortGameStrokes, .firstPutt, .firstPuttM, .putts,
+                .penalties, .penaltySource,
             ])
         // …and that worst case IS the vocabulary's own order, so a key added to
         // `StatVocabulary.order` cannot silently render out of shot order.
@@ -108,13 +109,47 @@ final class StatPromptsTests: XCTestCase {
 
     // MARK: - Answer-dependent visibility
 
-    func testShortGameAppearsOnlyWhenGIRIsAnsweredMiss() {
+    func testShortGameAppearsOnceGIRIsAnsweredEitherWay() {
         var s = step(modules(approach: true, shortGame: true))
         XCTAssertEqual(keys(s), [.gir], "unanswered GIR says nothing about the short game")
+        // A hit keeps the short-game rows too — a par-5 chip on for GIR is a
+        // real chip — just without the miss-direction question.
         s.answer(.gir, value: "1")
-        XCTAssertEqual(keys(s), [.gir])
+        XCTAssertEqual(keys(s), [.gir, .shortGameDifficulty, .shortGameStrokes])
         s.answer(.gir, value: "0")
         XCTAssertEqual(keys(s), [.gir, .greenMissDir, .shortGameDifficulty, .shortGameStrokes])
+    }
+
+    /// On a green hit in regulation the short-game rows are the exception, so
+    /// the model tells the view to fold them behind an "Add short game"
+    /// disclosure until either carries a value. The "tapped open this visit"
+    /// flag is the view's.
+    func testShortGameOnAHitGreenIsCollapsedUntilItHasAValue() {
+        var s = step(modules(approach: true, shortGame: true))
+        XCTAssertEqual(s.shortGameDisclosure, .none)
+        s.answer(.gir, value: "0")
+        // A missed green renders the rows normally — no disclosure.
+        XCTAssertEqual(s.shortGameDisclosure, .none)
+        s.answer(.gir, value: "1")
+        XCTAssertEqual(s.shortGameDisclosure, .collapsed)
+        s.answer(.shortGameDifficulty, value: "standard")
+        XCTAssertEqual(s.shortGameDisclosure, .expanded)
+        s.answer(.shortGameDifficulty, value: nil)
+        XCTAssertEqual(s.shortGameDisclosure, .collapsed)
+        s.step(.shortGameStrokes, by: 1)
+        XCTAssertEqual(s.shortGameDisclosure, .expanded)
+    }
+
+    func testAStoredShortGameAnswerOnAHitGreenOpensExpanded() {
+        let s = step(
+            modules(approach: true, shortGame: true),
+            persisted: [.gir: "1", .shortGameDifficulty: "hard"])
+        // Legal now: the chip happened, then the green was hit in regulation
+        // count.
+        XCTAssertEqual(keys(s), [.gir, .shortGameDifficulty, .shortGameStrokes])
+        XCTAssertEqual(s.value(of: .shortGameDifficulty), "hard")
+        XCTAssertEqual(s.shortGameDisclosure, .expanded)
+        XCTAssertTrue(s.batch.isEmpty)
     }
 
     func testRecoveryAppearsOnlyAfterTrouble() {
@@ -127,16 +162,23 @@ final class StatPromptsTests: XCTestCase {
     }
 
     /// Hiding a revealed prompt DISCARDS its answer. A mis-tap that opened the
-    /// short-game row must not leave its answer behind in the batch.
+    /// short-game row must not leave its answer behind in the batch. `hit_late`
+    /// is the answer that rules the chip out: the green attempt finished on
+    /// the green.
     func testHidingAPromptDiscardsItsAnswer() {
         var s = step(modules(approach: true, shortGame: true))
         s.answer(.gir, value: "0")
         s.answer(.shortGameDifficulty, value: "hard")
         XCTAssertEqual(s.value(of: .shortGameDifficulty), "hard")
 
-        s.answer(.gir, value: "1")
+        s.answer(.greenMissDir, value: "hit_late")
         XCTAssertNil(s.value(of: .shortGameDifficulty))
-        XCTAssertEqual(s.batch, [StatBatchItem(key: .gir, value: "1")])
+        XCTAssertEqual(
+            s.batch,
+            [
+                StatBatchItem(key: .gir, value: "0"),
+                StatBatchItem(key: .greenMissDir, value: "hit_late"),
+            ])
     }
 
     /// Same discard, but the hidden key was already stored server-side: then the
@@ -147,24 +189,24 @@ final class StatPromptsTests: XCTestCase {
             persisted: [.gir: "0", .shortGameDifficulty: "hard"])
         XCTAssertEqual(keys(s), [.gir, .greenMissDir, .shortGameDifficulty, .shortGameStrokes])
 
-        s.answer(.gir, value: "1")
-        XCTAssertEqual(keys(s), [.gir])
+        s.answer(.greenMissDir, value: "hit_late")
+        XCTAssertEqual(keys(s), [.gir, .greenMissDir])
         XCTAssertEqual(
             s.batch,
             [
-                StatBatchItem(key: .gir, value: "1"),
+                StatBatchItem(key: .greenMissDir, value: "hit_late"),
                 StatBatchItem(key: .shortGameDifficulty, value: nil),
             ])
     }
 
     /// A step whose stored state is already inconsistent (a short-game answer
-    /// with GIR hit) cleans itself up on open rather than rendering an
-    /// impossible row.
+    /// with the green attempt on the green) cleans itself up on open rather
+    /// than rendering an impossible row.
     func testAnImpossibleStoredCombinationIsPrunedOnOpen() {
         let s = step(
             modules(approach: true, shortGame: true),
-            persisted: [.gir: "1", .shortGameDifficulty: "hard"])
-        XCTAssertEqual(keys(s), [.gir])
+            persisted: [.gir: "0", .greenMissDir: "hit_late", .shortGameDifficulty: "hard"])
+        XCTAssertEqual(keys(s), [.gir, .greenMissDir])
         XCTAssertEqual(s.batch, [StatBatchItem(key: .shortGameDifficulty, value: nil)])
     }
 
@@ -293,7 +335,29 @@ final class StatPromptsTests: XCTestCase {
         XCTAssertEqual(firstPutt.map(\.label), ["< 1m", "1–2m", "2–4m", "4–8m", "> 8m"])
         XCTAssertEqual(values(.shortGameDifficulty), ["standard", "hard", "bunker"])
         XCTAssertEqual(values(.teeMissDir), ["left", "right"])
-        XCTAssertEqual(values(.greenMissDir), ["long", "short", "left", "right"])
+        XCTAssertEqual(values(.greenMissDir), ["long", "short", "left", "right", "hit_late"])
+        guard case .segments(let greenMiss) = StatVocabulary.control(for: .greenMissDir) else {
+            return XCTFail("Approach must stay a segmented row")
+        }
+        XCTAssertEqual(greenMiss.map(\.label), ["Long", "Short", "Left", "Right", "On green"])
+        // The exact-metre refinement: one closed option set per fine bucket,
+        // and the values are the exact TEXT the server stores.
+        func metres(_ parent: String) -> [String]? {
+            StatVocabulary.refineOptions(for: .firstPuttM, parentValue: parent)?.map(\.value)
+        }
+        XCTAssertEqual(metres("inside_1m"), ["0.3", "0.5", "0.8"])
+        XCTAssertEqual(metres("1_to_2m"), ["1", "1.5", "2"])
+        XCTAssertEqual(metres("2_to_4m"), ["2.5", "3", "3.5", "4"])
+        XCTAssertEqual(metres("4_to_8m"), ["5", "6", "7", "8"])
+        XCTAssertEqual(metres("over_8m"), ["10", "12", "14", "16", "20"])
+        XCTAssertEqual(
+            StatVocabulary.refineOptions(for: .firstPuttM, parentValue: "over_8m")?.map(\.label),
+            ["10m", "12m", "14m", "16m", "20+"])
+        // Legacy coarse buckets never offer a refinement.
+        XCTAssertNil(StatVocabulary.refineOptions(for: .firstPuttM, parentValue: "inside_2m"))
+        XCTAssertNil(StatVocabulary.refineOptions(for: .firstPuttM, parentValue: "2_to_6m"))
+        XCTAssertNil(StatVocabulary.refineOptions(for: .firstPuttM, parentValue: "over_6m"))
+        XCTAssertNil(StatVocabulary.refineOptions(for: .firstPuttM, parentValue: nil))
         XCTAssertEqual(values(.penaltySource), ["tee", "approach", "short_or_green"])
         XCTAssertEqual(StatVocabulary.control(for: .shortGameStrokes), .stepper(min: 1, max: 5))
         XCTAssertEqual(values(.recoveryOk), ["0", "1"])
@@ -382,6 +446,25 @@ final class StatPromptsTests: XCTestCase {
         XCTAssertTrue(unreadable.batch.isEmpty)
     }
 
+    /// Since 064 the short game is legal on a hit green, so the gir flip
+    /// clears the miss direction — its claim really is contradicted — and
+    /// ONLY that: the chip happened whichever way the green answer settles.
+    func testAStoredShortGameAnswerSurvivesTheGirFlipToHit() {
+        var s = step(
+            modules(approach: true, shortGame: true),
+            persisted: [.gir: "0", .greenMissDir: "left", .shortGameDifficulty: "standard"])
+        s.answer(.gir, value: "1")
+        XCTAssertEqual(s.value(of: .shortGameDifficulty), "standard")
+        XCTAssertTrue(keys(s).contains(.shortGameDifficulty))
+        XCTAssertEqual(s.shortGameDisclosure, .expanded)
+        XCTAssertEqual(
+            s.batch,
+            [
+                StatBatchItem(key: .gir, value: "1"),
+                StatBatchItem(key: .greenMissDir, value: nil),
+            ])
+    }
+
     /// The counter shares the difficulty's gate exactly — it is asked whenever
     /// there was a short-game shot, not once a difficulty has been picked.
     func testShortGameStrokesHasAllThreeStates() {
@@ -389,14 +472,17 @@ final class StatPromptsTests: XCTestCase {
         visible.answer(.gir, value: "0")
         XCTAssertEqual(keys(visible), [.gir, .greenMissDir, .shortGameDifficulty, .shortGameStrokes])
 
+        // A green hit no longer contradicts the counter (the chip may have
+        // produced the GIR) — `hit_late` is the answer that rules a chip out.
         var contradicted = step(
-            modules(approach: true, shortGame: true), persisted: [.shortGameStrokes: "2"])
-        contradicted.answer(.gir, value: "1")
-        XCTAssertEqual(keys(contradicted), [.gir])
+            modules(approach: true, shortGame: true),
+            persisted: [.gir: "0", .shortGameStrokes: "2"])
+        contradicted.answer(.greenMissDir, value: "hit_late")
+        XCTAssertEqual(keys(contradicted), [.gir, .greenMissDir])
         XCTAssertEqual(
             contradicted.batch,
             [
-                StatBatchItem(key: .gir, value: "1"),
+                StatBatchItem(key: .greenMissDir, value: "hit_late"),
                 StatBatchItem(key: .shortGameStrokes, value: nil),
             ])
 
@@ -511,18 +597,148 @@ final class StatPromptsTests: XCTestCase {
         XCTAssertFalse(s.materialiseDerivedGir(), "materialising twice must not re-queue")
     }
 
-    /// A derived HIT contradicts a stored short-game answer, and the clear
-    /// travels — the same path a manual tap takes.
-    func testMaterialisingAHitContradictsAStoredShortGameAnswer() {
-        var s = StatStep(
-            modules: modules(approach: true, putting: true, shortGame: true), par: 4,
-            holeNumber: 1, persisted: [.putts: "2", .shortGameDifficulty: "hard"], strokes: 4)
+    /// A chip then a green hit in regulation count is a legal combination now,
+    /// so a derived hit REVEALS the short-game rows (folded away) instead of
+    /// contradicting them.
+    func testMaterialisingOnCloseRevealsACollapsedShortGameAfterADerivedHit() {
+        var s = girStep(strokes: 4, putts: "2")
+        XCTAssertFalse(keys(s).contains(.shortGameDifficulty))
         XCTAssertTrue(s.materialiseDerivedGir())
+        XCTAssertEqual(s.value(of: .gir), "1")
+        XCTAssertTrue(keys(s).contains(.shortGameDifficulty))
+        XCTAssertTrue(keys(s).contains(.shortGameStrokes))
+        XCTAssertEqual(s.shortGameDisclosure, .collapsed)
+        XCTAssertTrue(s.batch.contains(StatBatchItem(key: .gir, value: "1")))
+    }
+
+    // MARK: - Exact first-putt metres (first_putt_m)
+    //
+    // An optional refinement of the bucket: a second chip row whose options are
+    // the metres inside the CURRENTLY selected fine bucket. Same three states
+    // as every conditional prompt, plus one rule of its own — the answer must
+    // stay inside its parent's bucket.
+
+    func testFirstPuttMetresAppearOnlyOnceAFineBucketIsSelected() {
+        var s = step(modules(putting: true))
+        XCTAssertEqual(keys(s), [.firstPutt, .putts])
+        s.answer(.firstPutt, value: "2_to_4m")
+        XCTAssertEqual(keys(s), [.firstPutt, .firstPuttM, .putts])
+    }
+
+    /// Components render what the model says: the emitted prompt is an
+    /// ordinary segments row carrying the selected bucket's metres, with no
+    /// leading label.
+    func testTheFirstPuttMetresPromptResolvesToTheSelectedBucketOptions() {
+        var s = step(modules(putting: true))
+        s.answer(.firstPutt, value: "over_8m")
+        guard let prompt = s.prompts.first(where: { $0.key == .firstPuttM }) else {
+            return XCTFail("the metre row must be on the card")
+        }
+        XCTAssertEqual(prompt.label, "")
+        guard case .segments(let options) = prompt.control else {
+            return XCTFail("the metre row must resolve to segments")
+        }
+        XCTAssertEqual(options.map(\.value), ["10", "12", "14", "16", "20"])
+    }
+
+    func testAMetreOutsideTheSelectedBucketIsRefused() {
+        var s = step(modules(putting: true))
+        s.answer(.firstPutt, value: "inside_1m")
+        s.answer(.firstPuttM, value: "3")
+        XCTAssertNil(s.value(of: .firstPuttM))
+        s.answer(.firstPuttM, value: "0.5")
+        XCTAssertEqual(s.value(of: .firstPuttM), "0.5")
         XCTAssertEqual(
             s.batch,
             [
-                StatBatchItem(key: .gir, value: "1"),
-                StatBatchItem(key: .shortGameDifficulty, value: nil),
+                StatBatchItem(key: .firstPutt, value: "inside_1m"),
+                StatBatchItem(key: .firstPuttM, value: "0.5"),
             ])
+    }
+
+    func testChangingTheBucketDiscardsADraftedMetre() {
+        var s = step(modules(putting: true))
+        s.answer(.firstPutt, value: "1_to_2m")
+        s.answer(.firstPuttM, value: "1.5")
+        s.answer(.firstPutt, value: "4_to_8m")
+        // '1.5' does not belong to 4–8m; it was never stored, so nothing to
+        // clear.
+        XCTAssertNil(s.value(of: .firstPuttM))
+        XCTAssertEqual(s.batch, [StatBatchItem(key: .firstPutt, value: "4_to_8m")])
+    }
+
+    func testChangingTheBucketClearsAStoredMetreOnTheServer() {
+        var s = step(
+            modules(putting: true), persisted: [.firstPutt: "1_to_2m", .firstPuttM: "1.5"])
+        XCTAssertEqual(s.value(of: .firstPuttM), "1.5")
+        s.answer(.firstPutt, value: "4_to_8m")
+        XCTAssertNil(s.value(of: .firstPuttM))
+        XCTAssertEqual(
+            s.batch,
+            [
+                StatBatchItem(key: .firstPutt, value: "4_to_8m"),
+                StatBatchItem(key: .firstPuttM, value: nil),
+            ])
+    }
+
+    func testClearingTheBucketClearsAStoredMetreToo() {
+        var s = step(
+            modules(putting: true), persisted: [.firstPutt: "1_to_2m", .firstPuttM: "1.5"])
+        s.answer(.firstPutt, value: nil)
+        XCTAssertEqual(keys(s), [.firstPutt, .putts])
+        XCTAssertEqual(
+            s.batch,
+            [
+                StatBatchItem(key: .firstPutt, value: nil),
+                StatBatchItem(key: .firstPuttM, value: nil),
+            ])
+    }
+
+    /// A legacy coarse bucket matches no segment and offers no refinement —
+    /// the row is off the card, and nothing is cleared because nothing fine
+    /// was stored.
+    func testALegacyCoarseBucketHidesTheMetreRowWithoutClearingAnything() {
+        let s = step(modules(putting: true), persisted: [.firstPutt: "inside_2m"])
+        XCTAssertEqual(keys(s), [.firstPutt, .putts])
+        XCTAssertTrue(s.batch.isEmpty)
+    }
+
+    /// Module off (or the putting row unreadable): the stored metre SURVIVES,
+    /// like every unreadable key.
+    func testATurnedOffPuttingModuleKeepsAStoredMetre() {
+        let s = step(
+            modules(approach: true), persisted: [.firstPutt: "2_to_4m", .firstPuttM: "3"])
+        XCTAssertTrue(s.batch.isEmpty)
+    }
+
+    func testReSelectingTheStoredMetreSendsNothing() {
+        var s = step(
+            modules(putting: true), persisted: [.firstPutt: "2_to_4m", .firstPuttM: "3"])
+        s.answer(.firstPuttM, value: "3.5")
+        XCTAssertEqual(s.batch, [StatBatchItem(key: .firstPuttM, value: "3.5")])
+        s.answer(.firstPuttM, value: "3")
+        XCTAssertEqual(s.batch, [])
+    }
+
+    // MARK: - The fifth green answer (hit_late)
+
+    func testHitLateContradictsTheShortGame() {
+        var s = step(modules(approach: true, shortGame: true))
+        s.answer(.gir, value: "0")
+        XCTAssertTrue(keys(s).contains(.shortGameDifficulty))
+        XCTAssertTrue(keys(s).contains(.shortGameStrokes))
+        s.answer(.greenMissDir, value: "hit_late")
+        XCTAssertFalse(keys(s).contains(.shortGameDifficulty))
+        XCTAssertFalse(keys(s).contains(.shortGameStrokes))
+        // A direction miss brings them back.
+        s.answer(.greenMissDir, value: "long")
+        XCTAssertTrue(keys(s).contains(.shortGameDifficulty))
+    }
+
+    func testHitLateNeverShowsADisclosure() {
+        var s = step(modules(approach: true, shortGame: true))
+        s.answer(.gir, value: "0")
+        s.answer(.greenMissDir, value: "hit_late")
+        XCTAssertEqual(s.shortGameDisclosure, .none)
     }
 }

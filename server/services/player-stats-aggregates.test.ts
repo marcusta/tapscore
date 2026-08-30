@@ -507,6 +507,23 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         dblPenaltyApproach: 0,
         dblPenaltyShort: 0,
         dblPenaltyUnknown: 1,
+
+        // Exact metres + hit_late (migration 064). The worked example predates
+        // both, so every count is zero EXCEPT meters made: the two inside_1m
+        // one-putts (H2, H5) carry no metre value and are modelled at 0.5m
+        // each — the gap is priced, not excluded.
+        firstPuttMRecorded: 0,
+        firstPuttMSum: 0,
+        firstPuttMRecordedGir: 0,
+        firstPuttMSumGir: 0,
+        metersMadeSum: 1,
+        metersMadeHoles: 2,
+        onePuttsUnmeasured: 0,
+        greenHitLate: 0,
+        chipGirHoles: 0,
+        chipGirOnePutt: 0,
+        chipGirPar5: 0,
+        chipGirPar5OnePutt: 0,
     });
 });
 
@@ -1180,6 +1197,25 @@ test('totals are the sum of every round measure, newest round first', async () =
         dblPenaltyApproach: 0,
         dblPenaltyShort: 0,
         dblPenaltyUnknown: 1,
+
+        // Exact metres + hit_late (migration 064). No metres and no hit_late
+        // anywhere, so the only live numbers are the coverage ones: A.H1 and
+        // B.H1 one-putted off a fine bucket other than inside_1m, and A.H3
+        // one-putted with no bucket at all — every one-putt that neither
+        // carries a metre nor earns the flat inside_1m credit is unmeasured,
+        // bucket or not.
+        firstPuttMRecorded: 0,
+        firstPuttMSum: 0,
+        firstPuttMRecordedGir: 0,
+        firstPuttMSumGir: 0,
+        metersMadeSum: 0,
+        metersMadeHoles: 0,
+        onePuttsUnmeasured: 3,
+        greenHitLate: 0,
+        chipGirHoles: 0,
+        chipGirOnePutt: 0,
+        chipGirPar5: 0,
+        chipGirPar5OnePutt: 0,
     });
 
     // And the per-round split behind them.
@@ -2594,4 +2630,473 @@ test('the cause classifier picks one bucket per hole, strongest evidence first',
     expect(m.dblPenaltyUnknown).toBe(1);
     expect(m.dblPenaltyApproach).toBe(0);
     expect(m.dblPenaltyShort).toBe(0);
+});
+
+// --- Exact metres + hit_late + chip on GIR (migration 064) ---------------------
+
+test('hit_late leaves the miss partition and silences every short-game measure', async () => {
+    const f = await fixture();
+    // H1: the green was HIT, over regulation — and a stale short-game pair
+    //     rode along (the client contradicts it, but the server accepts any
+    //     order). 6 on the par 4 is a double.
+    // H2: an ordinary miss left, one chip modelled, one putt.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'green_miss_dir', 'hit_late');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'short_game_strokes', '2');
+    await f.stat(1, 'first_putt', '2_to_4m');
+    await f.stat(1, 'putts', '2');
+    await f.stat(1, 'penalties', '0');
+    await f.score(1, 6);
+
+    await f.stat(2, 'gir', '0');
+    await f.stat(2, 'green_miss_dir', 'left');
+    await f.stat(2, 'short_game_difficulty', 'standard');
+    await f.stat(2, 'putts', '1');
+    await f.score(2, 5);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+
+    // The four directions partition the MISSES; hit_late is its own count.
+    // "Green attempts hit" is client math: girHits + greenHitLate.
+    expect(m.girRecorded).toBe(2);
+    expect(m.girHits).toBe(0);
+    expect(m.greenMissRecorded).toBe(1);
+    expect(m.greenMissLeft).toBe(1);
+    expect(m.greenHitLate).toBe(1);
+
+    // No chip happened on H1, whatever the stale answers say: it is out of the
+    // scramble family, out of the effective-strokes sum, and cannot be a
+    // multi-chip anything. H2 alone remains, its unanswered counter modelled
+    // as the one chip a missed green implies.
+    expect(m.scrambleAttemptsStandard).toBe(1);
+    expect(m.shortGameStrokesRecorded).toBe(0);
+    expect(m.shortGameStrokesEffective).toBe(1);
+    expect(m.holesMultiChip).toBe(0);
+
+    // The double classifier: multi_chip declines (hit_late), and the missing
+    // difficulty is COMPLETE coverage on a hit_late hole, so H1 reaches
+    // full_swing — three to the green then two putts IS the full swing's
+    // double.
+    expect(m.doubleBogeyPlus).toBe(1);
+    expect(m.dblMultiChip).toBe(0);
+    expect(m.dblFullSwing).toBe(1);
+
+    // Putting on H1 is untouched — hit_late silences the short game only.
+    expect(m.puttsRecorded).toBe(2);
+    expect(m.firstPutt2To4m).toBe(1);
+});
+
+test('a pre-064 missed green with no chip count still models exactly one chip', async () => {
+    const f = await fixture();
+    // The historical shape: gir 0, a difficulty, no green_miss_dir, no
+    // counter. The COALESCE-to-1 default must keep applying here — only
+    // hit_late and gir=1 holes escaped it.
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'putts', '1');
+    await f.score(1, 4);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.scrambleAttemptsStandard).toBe(1);
+    expect(m.scrambleSuccessesStandard).toBe(1);
+    expect(m.shortGameStrokesEffective).toBe(1);
+    expect(m.chipGirHoles).toBe(0);
+});
+
+test('exact metres aggregate: recorded, summed, GIR-conditioned, and priced into meters made', async () => {
+    const f = await fixture();
+    // H1: green hit, 2-4m refined to 3.5, holed        → 3.5 real metres made
+    // H2: miss, 1-2m refined to 1.5, two putts         → metres recorded, none made
+    // H3: green hit, inside_1m, holed, NO metres       → modelled at 0.5
+    // H4: green hit, over 8m, holed, NO metres         → the unmeasured one-putt
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'first_putt', '2_to_4m');
+    await f.stat(1, 'first_putt_m', '3.5');
+    await f.stat(1, 'putts', '1');
+
+    await f.stat(2, 'gir', '0');
+    await f.stat(2, 'green_miss_dir', 'short');
+    await f.stat(2, 'short_game_difficulty', 'standard');
+    await f.stat(2, 'first_putt', '1_to_2m');
+    await f.stat(2, 'first_putt_m', '1.5');
+    await f.stat(2, 'putts', '2');
+
+    await f.stat(3, 'gir', '1');
+    await f.stat(3, 'first_putt', 'inside_1m');
+    await f.stat(3, 'putts', '1');
+
+    await f.stat(4, 'gir', '1');
+    await f.stat(4, 'first_putt', 'over_8m');
+    await f.stat(4, 'putts', '1');
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+
+    expect(m.firstPuttMRecorded).toBe(2);
+    expect(m.firstPuttMSum).toBe(5);
+    // Proximity — greens hit only. H2's 1.5 m stays out.
+    expect(m.firstPuttMRecordedGir).toBe(1);
+    expect(m.firstPuttMSumGir).toBe(3.5);
+    // Meters made: 3.5 measured + 0.5 for the unmeasured tap-in. H4's long
+    // one is NOT guessed at — it goes to the coverage count instead.
+    expect(m.metersMadeSum).toBe(4);
+    expect(m.metersMadeHoles).toBe(2);
+    expect(m.onePuttsUnmeasured).toBe(1);
+
+    // The make curve, whole history, ascending: both metre values carry their
+    // own denominator, and unmeasured holes have no row at all.
+    expect(await f.ctx.playerStatsService.firstPuttCurveForPlayer(f.playerId)).toEqual([
+        { firstPuttM: 1.5, attempts: 1, onePutts: 0, puttsTotal: 2 },
+        { firstPuttM: 3.5, attempts: 1, onePutts: 1, puttsTotal: 1 },
+    ]);
+});
+
+test('a chip on a GIR hole is counted where it happened, never defaulted', async () => {
+    const f = await fixture();
+    // H1: par 4, green hit, greenside chip recorded, one putt → up and down
+    // H4: par 5, on in two, chip recorded (difficulty only), two putts
+    // H2: green hit, no short game recorded → NOT a chip hole; unrecorded on
+    //     a GIR hole means zero chips, not one.
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'short_game_strokes', '1');
+    await f.stat(1, 'putts', '1');
+    await f.score(1, 4);
+
+    await f.stat(4, 'gir', '1');
+    await f.stat(4, 'short_game_difficulty', 'standard');
+    await f.stat(4, 'putts', '2');
+    await f.score(4, 5);
+
+    await f.stat(2, 'gir', '1');
+    await f.stat(2, 'putts', '2');
+    await f.score(2, 4);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+
+    expect(m.chipGirHoles).toBe(2);
+    expect(m.chipGirOnePutt).toBe(1);
+    // The par-5 split: up-and-down for birdie is the H4 shape with one putt —
+    // this one took two, so the numerator stays at zero.
+    expect(m.chipGirPar5).toBe(1);
+    expect(m.chipGirPar5OnePutt).toBe(0);
+
+    // A GIR chip is not a scramble (that family is saves after a MISS), and
+    // it adds nothing to the missed-green effective-strokes sum.
+    expect(m.scrambleAttemptsStandard).toBe(0);
+    expect(m.shortGameStrokesEffective).toBe(0);
+});
+
+test('a GIR chip without a putt count is in neither chip-on-GIR column', async () => {
+    const f = await fixture();
+    // H1: chip recorded on a green hit, but the hole never answered putts —
+    //     the numerators need a putt count to say "one putt", so a
+    //     denominator admitting the hole would deflate the rate with holes
+    //     that can never convert (the scramble_attempts pattern).
+    // H4: the par-5 version WITH the putt count — in all four columns.
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'short_game_strokes', '1');
+    await f.score(1, 4);
+
+    await f.stat(4, 'gir', '1');
+    await f.stat(4, 'short_game_difficulty', 'standard');
+    await f.stat(4, 'putts', '1');
+    await f.score(4, 4);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.chipGirHoles).toBe(1);
+    expect(m.chipGirOnePutt).toBe(1);
+    expect(m.chipGirPar5).toBe(1);
+    expect(m.chipGirPar5OnePutt).toBe(1);
+});
+
+test('a GIR chip prices into the effective strokes, on the green side of the cohort', async () => {
+    const f = await fixture();
+    // Par 4, green hit in regulation, then a recorded 1-stroke chip (a
+    // fringe bump) and one putt. The chip's stroke
+    // must land in the SHORT-GAME sum, not the approach residual, and the
+    // hole sits on the GIR side of the cohort partition.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'short_game_strokes', '1');
+    await f.stat(1, 'first_putt', '1_to_2m');
+    await f.stat(1, 'putts', '1');
+    await f.stat(1, 'penalties', '0');
+    await f.score(1, 4);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.attHolesPar45Gir).toBe(1);
+    expect(m.attHolesPar45Miss).toBe(0);
+    // The recorded chip charges the effective sum without a miss count —
+    // shortGame receives (C − nMiss) = 1 and approach gives the same 1 back.
+    expect(m.attSgStrokesEffectiveStandard).toBe(1);
+    expect(m.attMissStandard).toBe(0);
+    expect(m.attGirFirstPutt1To2m).toBe(1);
+    expect(m.attStrokes).toBe(4);
+    expect(m.attPutts).toBe(1);
+});
+
+test('a GIR hole with a difficulty but no counter charges no effective stroke', async () => {
+    const f = await fixture();
+    // On a green HIT, an untouched counter means no chip is asserted beyond
+    // the difficulty — the default is 0, never the missed-green 1.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'first_putt', 'inside_1m');
+    await f.stat(1, 'putts', '1');
+    await f.score(1, 3);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.attHolesPar45Gir).toBe(1);
+    expect(m.attSgStrokesEffectiveStandard).toBe(0);
+    expect(m.attMissStandard).toBe(0);
+});
+
+test('a hit_late hole joins the cohort on the green side, with zero short game', async () => {
+    const f = await fixture();
+    // Three to the green on the par 4, arrival bucket, two putts. The hole
+    // attributes: the arrival state is real, the extra approach stroke lands
+    // in the residual, and no chip term exists to charge.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'green_miss_dir', 'hit_late');
+    await f.stat(1, 'first_putt', '2_to_4m');
+    await f.stat(1, 'putts', '2');
+    await f.stat(1, 'penalties', '0');
+    await f.score(1, 5);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.attHolesPar45Gir).toBe(1);
+    expect(m.attHolesPar45Miss).toBe(0);
+    expect(m.attGirFirstPutt2To4m).toBe(1);
+    expect(m.attMissStandard + m.attMissHard + m.attMissBunker).toBe(0);
+    expect(
+        m.attSgStrokesEffectiveStandard +
+            m.attSgStrokesEffectiveHard +
+            m.attSgStrokesEffectiveBunker,
+    ).toBe(0);
+    expect(m.attFairwayPar4).toBe(1);
+    expect(m.attStrokes).toBe(5);
+    expect(m.attPutts).toBe(2);
+});
+
+test('a legacy-bucket one-putt with no metres is an unmeasured one-putt', async () => {
+    const f = await fixture();
+    // A pre-044 hole: one putt off a coarse inside_2m. It earns no flat
+    // credit (that is inside_1m's, owner ruling) and carries no metre, so it
+    // belongs in the coverage count — unmeasured is "no metre and no credit",
+    // not "fine outer bucket".
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'putts', '1');
+    await f.score(1, 4);
+    await f.ctx.db
+        .insertInto('stat_events')
+        .values({
+            id: crypto.randomUUID(),
+            round_id: f.roundId,
+            play_hole_id: f.hole(1),
+            player_id: f.playerId,
+            seq: 9300,
+            key: 'first_putt',
+            value: 'inside_2m',
+            recorded_by_player_id: null,
+            client_event_id: 'legacy-unmeasured-1',
+        })
+        .execute();
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.onePuttsUnmeasured).toBe(1);
+    expect(m.metersMadeSum).toBe(0);
+    expect(m.metersMadeHoles).toBe(0);
+});
+
+test('the curve view keeps rounds apart and the endpoint read sums them', async () => {
+    // Two rounds, the same 3.5 m cell in each. The view row is per round (a
+    // client-side window over rounds must equal the server-side total); the
+    // service read folds them into ONE ascending wire row per metre.
+    const f1 = await fixture({ date: '2026-07-01' });
+    await f1.stat(1, 'gir', '1');
+    await f1.stat(1, 'first_putt', '2_to_4m');
+    await f1.stat(1, 'first_putt_m', '3.5');
+    await f1.stat(1, 'putts', '1');
+
+    const f2 = await fixture({ date: '2026-07-08', ctx: f1.ctx, playerId: f1.playerId });
+    await f2.stat(1, 'gir', '1');
+    await f2.stat(1, 'first_putt', '2_to_4m');
+    await f2.stat(1, 'first_putt_m', '3.5');
+    await f2.stat(1, 'putts', '2');
+
+    const viewRows = await f1.ctx.db
+        .selectFrom('v_player_sg_gir_arrival_m')
+        .selectAll()
+        .where('player_id', '=', f1.playerId)
+        .execute();
+    // The arrival view needs a SCORE (the attribution cohort does); neither
+    // hole has one yet, so the arrival rows are empty while the curve is not.
+    expect(viewRows).toEqual([]);
+    expect(await f1.ctx.playerStatsService.firstPuttCurveForPlayer(f1.playerId)).toEqual([
+        { firstPuttM: 3.5, attempts: 2, onePutts: 1, puttsTotal: 3 },
+    ]);
+});
+
+/** A fixture hole carrying the full attributable GIR-arrival shape. */
+async function arrivalHole(
+    f: Awaited<ReturnType<typeof fixture>>,
+    holeNumber: number,
+    meters: string,
+    bucket: string,
+    putts: string,
+    strokes: number,
+) {
+    await f.stat(holeNumber, 'tee_result', 'fairway');
+    await f.stat(holeNumber, 'gir', '1');
+    await f.stat(holeNumber, 'first_putt', bucket);
+    await f.stat(holeNumber, 'first_putt_m', meters);
+    await f.stat(holeNumber, 'putts', putts);
+    await f.score(holeNumber, strokes);
+}
+
+test('arrival metres ride the summary per round and sum on page one', async () => {
+    const f1 = await fixture({ date: '2026-07-01' });
+    await arrivalHole(f1, 1, '3.5', '2_to_4m', '2', 4);
+    await arrivalHole(f1, 2, '1.5', '1_to_2m', '1', 3);
+
+    const f2 = await fixture({ date: '2026-07-08', ctx: f1.ctx, playerId: f1.playerId });
+    await arrivalHole(f2, 1, '3.5', '2_to_4m', '1', 3);
+
+    const summary = await f1.ctx.playerStatsService.summaryForPlayer(f1.playerId);
+    // Newest first: f2's round leads.
+    expect(summary.rounds).toHaveLength(2);
+    expect(summary.rounds[0]!.girArrivalMetres).toEqual([{ meters: 3.5, holes: 1 }]);
+    expect(summary.rounds[1]!.girArrivalMetres).toEqual([
+        { meters: 1.5, holes: 1 },
+        { meters: 3.5, holes: 1 },
+    ]);
+    // Whole-history companion to `totals`, ascending per metre.
+    expect(summary.girArrivalMetresTotals).toEqual([
+        { meters: 1.5, holes: 1 },
+        { meters: 3.5, holes: 2 },
+    ]);
+    // Every arrival hole is already inside its bucket's att column — the cells
+    // refine prices, they never add holes.
+    expect(summary.totals!.attGirFirstPutt2To4m).toBe(2);
+    expect(summary.totals!.attGirFirstPutt1To2m).toBe(1);
+
+    // The page-one-only rule, exactly as `totals`: a cursored page carries
+    // null totals but still carries its rounds' own cells.
+    const pageOne = await f1.ctx.playerStatsService.summaryForPlayer(f1.playerId, { limit: 1 });
+    const pageTwo = await f1.ctx.playerStatsService.summaryForPlayer(f1.playerId, {
+        limit: 1,
+        cursor: pageOne.nextCursor!,
+    });
+    expect(pageTwo.girArrivalMetresTotals).toBeNull();
+    expect(pageTwo.rounds[0]!.girArrivalMetres).toEqual([
+        { meters: 1.5, holes: 1 },
+        { meters: 3.5, holes: 1 },
+    ]);
+});
+
+test('an arrival-metres cell exists exactly where the att cohort admits the hole', async () => {
+    const f = await fixture();
+    // H1: the attributable GIR arrival — the ONE hole that counts.
+    await arrivalHole(f, 1, '3.5', '2_to_4m', '2', 4);
+
+    // H2: metre on a MISSED green (a chip's first putt). In the curve, but on
+    // the wrong side of the cohort partition for an arrival.
+    await f.stat(2, 'tee_result', 'fairway');
+    await f.stat(2, 'gir', '0');
+    await f.stat(2, 'short_game_difficulty', 'standard');
+    await f.stat(2, 'first_putt', '1_to_2m');
+    await f.stat(2, 'first_putt_m', '1.5');
+    await f.stat(2, 'putts', '1');
+    await f.score(2, 5);
+
+    // H4: metre and bucket but NO putt count — no outcome, not attributable.
+    await f.stat(4, 'tee_result', 'fairway');
+    await f.stat(4, 'gir', '1');
+    await f.stat(4, 'first_putt', '4_to_8m');
+    await f.stat(4, 'first_putt_m', '6');
+    await f.score(4, 5);
+
+    // H5: metre, bucket, putts — but the hole was never SCORED, so it is
+    // outside the cohort (`att_strokes` could not include it).
+    await f.stat(5, 'gir', '1');
+    await f.stat(5, 'first_putt', '2_to_4m');
+    await f.stat(5, 'first_putt_m', '2.5');
+    await f.stat(5, 'putts', '2');
+
+    // H6: par 4 with a GIR arrival but NO tee answer — attributable requires
+    // tee_result on par 4/5, so the metre stays out.
+    await f.stat(6, 'gir', '1');
+    await f.stat(6, 'first_putt', '2_to_4m');
+    await f.stat(6, 'first_putt_m', '4');
+    await f.stat(6, 'putts', '2');
+    await f.score(6, 4);
+
+    const summary = await f.ctx.playerStatsService.summaryForPlayer(f.playerId);
+    expect(summary.rounds[0]!.girArrivalMetres).toEqual([{ meters: 3.5, holes: 1 }]);
+    expect(summary.girArrivalMetresTotals).toEqual([{ meters: 3.5, holes: 1 }]);
+    // Co-extension with the att bucket columns: one 2-4m arrival, and the
+    // excluded holes are outside their att columns too.
+    expect(summary.totals!.attGirFirstPutt2To4m).toBe(1);
+    expect(summary.totals!.attGirFirstPutt4To8m).toBe(0);
+});
+
+test('a hit_late arrival with a metre is a cohort arrival; the par 3 needs no tee answer', async () => {
+    const f = await fixture();
+    // H1: par 4, three to the green (hit_late), 2-4m refined to 3, two putts.
+    // On the GREEN side of the partition, so its metre rides.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'green_miss_dir', 'hit_late');
+    await f.stat(1, 'first_putt', '2_to_4m');
+    await f.stat(1, 'first_putt_m', '3');
+    await f.stat(1, 'putts', '2');
+    await f.score(1, 5);
+
+    // H3: the par 3 — no tee question exists, so no tee answer is required.
+    await f.stat(3, 'gir', '1');
+    await f.stat(3, 'first_putt', '1_to_2m');
+    await f.stat(3, 'first_putt_m', '2');
+    await f.stat(3, 'putts', '1');
+    await f.score(3, 3);
+
+    const summary = await f.ctx.playerStatsService.summaryForPlayer(f.playerId);
+    expect(summary.rounds[0]!.girArrivalMetres).toEqual([
+        { meters: 2, holes: 1 },
+        { meters: 3, holes: 1 },
+    ]);
+    expect(summary.totals!.attGirFirstPutt2To4m).toBe(1);
+    expect(summary.totals!.attGirFirstPutt1To2m).toBe(1);
+});
+
+test('a picked-up ball is no score, and no arrival', async () => {
+    const f = await fixture();
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'first_putt', '2_to_4m');
+    await f.stat(1, 'first_putt_m', '3.5');
+    await f.stat(1, 'putts', '2');
+    // strokes = 0 is a pickup (spec §14 item 7) — canonicalised to NULL by
+    // the same hole_scores rule the wide views use.
+    await f.score(1, 0);
+
+    const summary = await f.ctx.playerStatsService.summaryForPlayer(f.playerId);
+    expect(summary.rounds[0]!.girArrivalMetres).toEqual([]);
+    expect(summary.girArrivalMetresTotals).toEqual([]);
+    expect(summary.totals!.attGirFirstPutt2To4m).toBe(0);
 });

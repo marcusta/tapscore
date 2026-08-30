@@ -249,11 +249,17 @@ export async function createFineGrainedPuttingViews(db: Kysely<any>): Promise<vo
                      THEN 1 END) AS one_putt_over_8m,
                 COUNT(CASE WHEN first_putt = 'over_8m' AND putts >= 3
                      THEN 1 END) AS three_putts_from_over_8m,
+                -- The hit_late guard (migration 064): 'hit_late' says no chip
+                -- happened, so a stale difficulty alongside it is contradicted
+                -- data and the hole leaves the scramble family — the same rule
+                -- 043 applies at its hole-CTE boundary.
                 COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'standard'
+                     AND (green_miss_dir IS NULL OR green_miss_dir <> 'hit_late')
                      AND first_putt IN ('inside_2m', 'inside_1m', '1_to_2m')
                      AND (putts IS NULL OR putts <> 0 OR first_putt IS NULL)
                      THEN 1 END) AS scramble_inside_2m_standard_v2,
                 COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'hard'
+                     AND (green_miss_dir IS NULL OR green_miss_dir <> 'hit_late')
                      AND first_putt IN ('inside_2m', 'inside_1m', '1_to_2m')
                      AND (putts IS NULL OR putts <> 0 OR first_putt IS NULL)
                      THEN 1 END) AS scramble_inside_2m_hard_v2,
@@ -264,6 +270,7 @@ export async function createFineGrainedPuttingViews(db: Kysely<any>): Promise<vo
                 -- forever. This is the column the read service consumes, exactly
                 -- as it consumes the standard/hard _v2 pair.
                 COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'bunker'
+                     AND (green_miss_dir IS NULL OR green_miss_dir <> 'hit_late')
                      AND first_putt IN ('inside_2m', 'inside_1m', '1_to_2m')
                      AND (putts IS NULL OR putts <> 0 OR first_putt IS NULL)
                      THEN 1 END) AS scramble_inside_2m_bunker_v2

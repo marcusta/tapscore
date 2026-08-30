@@ -1,7 +1,11 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { di } from '@basics/core/client/core';
 import { SG_BASELINES_V1, ZERO_MEASURES } from '../../src/round/stat-measures';
-import type { PlayerRoundStats, PlayerStatsSummary } from '../../src/api/player-stats.gen';
+import type {
+    FirstPuttCurvePoint,
+    PlayerRoundStats,
+    PlayerStatsSummary,
+} from '../../src/api/player-stats.gen';
 import type { Player } from '../../src/api/players.gen';
 
 // The dashboard's transparent paging. Mirrors the per-round harness: mock
@@ -23,6 +27,7 @@ function round(over: Partial<PlayerRoundStats> & { roundId: string }): PlayerRou
         name: null,
         holeCount: 18,
         measures: ZERO_MEASURES,
+        girArrivalMetres: [],
         ...over,
     };
 }
@@ -32,14 +37,23 @@ function rounds(n: number, prefix: string): PlayerRoundStats[] {
 }
 
 function page(rows: PlayerRoundStats[], nextCursor: string | null): PlayerStatsSummary {
-    return { playerId: 'p1', roundsWithStats: 40, totals: null, rounds: rows, nextCursor };
+    return {
+        playerId: 'p1',
+        roundsWithStats: 40,
+        totals: null,
+        girArrivalMetresTotals: null,
+        rounds: rows,
+        nextCursor,
+    };
 }
 
 const state: {
     /** One entry per call, in order: a page to return, or an error to throw. */
     responses: (PlayerStatsSummary | Error)[];
     calls: { limit?: number; cursor?: string }[];
-} = { responses: [], calls: [] };
+    /** The career make curve, or an error — it is fetched on its own route. */
+    curve: FirstPuttCurvePoint[] | Error;
+} = { responses: [], calls: [], curve: [] };
 
 const apiMock = {
     playerStats: {
@@ -48,6 +62,10 @@ const apiMock = {
             const next = state.responses.shift();
             if (next instanceof Error) throw next;
             return next ?? page([], null);
+        }),
+        myFirstPuttCurve: mock(async () => {
+            if (state.curve instanceof Error) throw state.curve;
+            return state.curve;
         }),
     },
 };
@@ -97,6 +115,7 @@ beforeEach(() => {
     di.reset();
     state.responses = [];
     state.calls = [];
+    state.curve = [];
 });
 
 test('a first page with truncated measures is refused, not rendered as NaN', async () => {
@@ -230,4 +249,47 @@ test('switching cohort re-prices the model without refetching a single page', as
     // The choice is device-persisted, so leave the default behind for whatever
     // constructs the service next.
     svc.selectSgBaseline('auto');
+});
+
+// --- The career make curve ---------------------------------------------------
+//
+// A second route, fetched once beside the first page. It is WINDOW-BLIND on
+// purpose: a few rounds hold too few putts from any one metre to read.
+
+test('the curve is fetched once and survives every window switch unrefetched', async () => {
+    state.curve = [{ firstPuttM: 3, attempts: 6, onePutts: 2, puttsTotal: 10 }];
+    // A putt recorded somewhere, or there is no putting card to hang the
+    // curve on.
+    const putted = round({
+        roundId: 'p-1',
+        measures: { ...ZERO_MEASURES, firstPuttRecorded: 9, puttsRecorded: 9 },
+    });
+    state.responses = [page([putted, ...rounds(4, 'a')], null)];
+    const svc = service();
+    await svc.load();
+
+    const curveBlocks = () =>
+        svc.model.get().putting?.curve.map((p) => `${p.meters}:${p.onePutts}/${p.attempts}`) ?? [];
+    expect(curveBlocks()).toEqual(['3:2/6']);
+
+    // The window moved; the curve did not, and no second request was made.
+    const before = apiMock.playerStats.myFirstPuttCurve.mock.calls.length;
+    svc.select('all');
+    await settled(svc);
+    expect(curveBlocks()).toEqual(['3:2/6']);
+    expect(apiMock.playerStats.myFirstPuttCurve.mock.calls.length).toBe(before);
+});
+
+test('a failed curve costs the dashboard its curve section and nothing else', async () => {
+    // One section of one card. It must not take the rows down with it, and it
+    // must not raise the banner that means "your window may be short".
+    state.curve = new Error('Network request failed');
+    state.responses = [page(rounds(5, 'a'), null)];
+    const svc = service();
+    await svc.load();
+
+    expect(svc.error.get()).toBeNull();
+    expect(svc.extendError.get()).toBeNull();
+    expect(svc.loadedRounds.get()).toHaveLength(5);
+    expect(svc.curveRows.get()).toEqual([]);
 });

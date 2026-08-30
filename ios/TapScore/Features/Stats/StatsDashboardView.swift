@@ -838,6 +838,39 @@ enum StatsCopy {
         "Your average score against par on the holes where you missed the green, split by how hard the recovery was. The gap between the rows is what a hard miss actually costs over a standard one."
     static let penaltySourceInfoTitle = "Where the penalties came from"
 
+    // MARK: Exact first-putt metres (migration 064)
+
+    static let greenAttemptsHead = "Greens hit"
+    static let greenAttemptsHit =
+        "Greens hit at any point, including the ones you reached after regulation. Read against the row above it: regulation is ball-striking, this is position."
+    static let exactMetresHead = "Exact distances"
+    static let proximityOnGirTitle = "Average first putt"
+    static let proximityOnGir =
+        "The average distance of the first putt on greens you hit, from the metres you tapped in. Only greens with a metre recorded count."
+    static let metersMadeTitle = "Metres of first putts holed"
+    static let metersMade =
+        "The metres of first putt you holed, added up. A one-putt from inside 1 m carries no distance, so it counts at a flat half metre."
+    static let makeCurveHead = "Holed, by distance"
+    static let makeCurve =
+        "How often the first putt went in from each distance you have recorded, with the average putts from there beside it, and the putts each row counts. Only distances you have actually putted from appear. A distance with no row is one you have never recorded, not one you never hole."
+
+    /// The metres-made card's coverage line: a STATEMENT, never an exclusion.
+    /// These holes were one-putted; they simply carry no distance, and saying
+    /// "left out" turns a coverage fact into a complaint about the reader's
+    /// tapping.
+    static func metersMadeUnmeasured(_ onePuttsUnmeasured: Double) -> String? {
+        guard onePuttsUnmeasured > 0 else { return nil }
+        return
+            "\(StatsFormat.quantity(onePuttsUnmeasured, .holes)) you one-putted have no distance recorded."
+    }
+
+    static let chipOnGirHead = "Chipped on a green in regulation"
+    static let chipOnGirTitle = "Up and in"
+    static let chipOnGir =
+        "Greens you hit where you still played a short-game shot, such as the greenside chip on a par 5 that made regulation. Up and in counts the hole where one putt, or the chip itself, finished it."
+    static let chipOnGirPar5 =
+        "The par-5 half of the same holes: greenside in two, chipped, and the putt for birdie went in."
+
     /// The ⓘ card's live sentence. Absolute counts, not percentages: the sample
     /// is usually tiny, and `MIN_RATE_DENOMINATOR` would otherwise hide the
     /// whole card.

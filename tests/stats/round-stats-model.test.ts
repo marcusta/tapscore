@@ -12,7 +12,12 @@ import {
     roundStatsTitle,
     scoreMarkerForm,
 } from '../../src/stats/round-stats-model';
-import { SG_BASELINES_V1, ZERO_MEASURES } from '../../src/round/stat-measures';
+import {
+    SG_BASELINES_V1,
+    strokesLostForBundle,
+    ZERO_MEASURES,
+} from '../../src/round/stat-measures';
+import { buildDashboardModel } from '../../src/stats/stats-dashboard-model';
 import type {
     PlayerHoleStats,
     PlayerRoundHoleStats,
@@ -39,6 +44,7 @@ function round(
         name: null,
         holeCount: 18,
         measures: ZERO_MEASURES,
+        girArrivalMetres: [],
         ...over,
     };
 }
@@ -51,6 +57,7 @@ function stats(over: Partial<PlayerHoleStats> = {}): PlayerHoleStats {
         teeResult: null,
         gir: null,
         firstPutt: null,
+        firstPuttM: null,
         putts: null,
         shortGameDifficulty: null,
         penalties: null,
@@ -247,6 +254,54 @@ test('the baseline bundle prices the round and its personal baseline alike', () 
     expect(buildRoundStatsModel(args)).toEqual(
         buildRoundStatsModel({ ...args, bundle: SG_BASELINES_V1.hcp12 }),
     );
+});
+
+// The window baseline this screen compares against must be priced the SAME way
+// the round itself is. The round's waterfall uses its exact arrival metres
+// (migration 064); a window folded without them would price the same play
+// differently, and the pricing difference would surface as form.
+test('the window baseline prices each prior round with its own arrival metres', () => {
+    const m = measures({
+        holesScored: 9,
+        attHolesPar3Gir: 9,
+        attStrokes: 27,
+        attPutts: 18,
+        attGirFirstPutt2To4m: 9,
+    });
+    const cells = [{ meters: 2, holes: 9 }];
+    const prior = round({
+        roundId: 'r0',
+        date: '2026-05-01',
+        measures: m,
+        girArrivalMetres: cells,
+    });
+    const bundle = SG_BASELINES_V1.hcp12;
+
+    // The same round priced by the dashboard's per-round path, which has always
+    // been handed the cells.
+    const dashboard = buildDashboardModel([prior], bundle).rounds[0]!.waterfall;
+
+    const model = buildRoundStatsModel({
+        round: round({
+            roundId: 'r1',
+            date: '2026-05-02',
+            measures: m,
+            girArrivalMetres: cells,
+        }),
+        holes: [],
+        history: [prior],
+        bundle,
+    });
+
+    // The refinement is real — the bucket price and the metre price differ —
+    // so this test would fail on an unrefined window fold.
+    expect(dashboard.putting!).not.toBeCloseTo(
+        strokesLostForBundle(m, bundle).putting!,
+        6,
+    );
+    expect(model.waterfall.putting!).toBeCloseTo(dashboard.putting!, 9);
+    // Unchanged play, refined on both sides: nothing to report.
+    expect(model.deltas!.putting!).toBeCloseTo(0, 9);
 });
 
 // --- The window --------------------------------------------------------------

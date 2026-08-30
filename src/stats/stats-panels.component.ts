@@ -8,6 +8,7 @@ import {
     type StatsPanelId,
 } from './stats-dashboard-model';
 import {
+    curveReading,
     panelBlocks,
     panelHeadline,
     rungReading,
@@ -130,6 +131,20 @@ const rungTpl = template(`
         <span bind="bar" class="block__bar"></span>
         <span bind="value" class="block__value"></span>
         <span bind="cost" class="block__cost"></span>
+    </div>
+`);
+
+// The make curve's row: the rung's geometry, so the curve's two columns line up
+// under the same header the ladder above it uses. Its bar is a plain share (no
+// reference tick — the exact-metre baseline is not a thing the bundles carry),
+// and its second column is an average rather than a signed cost, so it takes the
+// cost cell's alignment without its meaning.
+const curveTpl = template(`
+    <div bind="row" class="block block--bar" role="img">
+        <span bind="title" class="block__title"></span>
+        <span bind="bar" class="block__bar"></span>
+        <span bind="value" class="block__value"></span>
+        <span bind="avg" class="block__cost"></span>
     </div>
 `);
 
@@ -556,6 +571,43 @@ ${SG_INFO_STYLES}
                             STATS_COPY.noValue,
                         ),
                         cost: () => live().cost,
+                    },
+                    track,
+                );
+            }
+            case 'curve': {
+                const live = () => {
+                    const b = this.blockNow(panel, block.id);
+                    return b && b.kind === 'curve' ? b : block;
+                };
+                return this.wireEl(
+                    curveTpl,
+                    {
+                        row: {
+                            'aria-label': () => {
+                                const b = live();
+                                return curveReading({
+                                    title: b.title,
+                                    value: b.value,
+                                    avg: b.avg,
+                                });
+                            },
+                        },
+                        title: () => block.title,
+                        bar: {
+                            innerHTML: () => {
+                                const b = live();
+                                if (b.share === null) return '';
+                                return renderMiniBar(b.share, this.colors);
+                            },
+                        },
+                        value: this.valueBinding(
+                            panel,
+                            block.id,
+                            () => block.value,
+                            STATS_COPY.noValue,
+                        ),
+                        avg: () => live().avg,
                     },
                     track,
                 );

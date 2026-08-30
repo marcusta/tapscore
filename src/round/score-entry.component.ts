@@ -1,4 +1,4 @@
-import { Component, Computed, Signal, effect, template } from '@basics/core/client/core';
+import { Component, Computed, Signal, effect, template, untrack } from '@basics/core/client/core';
 import { t } from '../theme';
 import { s } from '../css';
 import { RoundViewService, ballDisplayName } from './round.service';
@@ -183,7 +183,24 @@ const statSegTpl = template(`
     </div>
 `);
 
+// The same segmented row WITHOUT a heading, for a prompt whose model label is
+// deliberately empty (`first_putt_m`). An empty `<span>` in the labelled
+// template would leave a heading element with nothing in it; the row instead
+// takes its accessible name from the group's `aria-label` (`STAT_UNLABELLED`).
+const statSubSegTpl = template(`
+    <div class="se-stats__group se-stats__group--sub">
+        <div bind="seg" class="se-stats__seg"></div>
+    </div>
+`);
+
 const segBtnTpl = template(`<button bind="btn" class="se-seg" type="button"></button>`);
+
+// The short-game fold. A chip on a green hit in regulation is the exception, so
+// the two prompts sit behind one quiet worded row until the golfer asks for
+// them. Words, not a glyph (design-guidelines §4).
+const sgDiscloseTpl = template(`
+    <button bind="disclose" class="se-stats__disclose" type="button">Add short game</button>
+`);
 
 // A one-tap counter. It shows its floor before anyone touches it, dimmed, so an
 // untouched row cannot be mistaken for an answered zero.
@@ -210,7 +227,38 @@ const statRuleTpl = template(`<div bind="rule" class="se-stats__rule"></div>`);
 type StatBodyRow =
     | { kind: 'meta'; key: string; input: MetadataInput }
     | { kind: 'rule'; key: string }
+    | { kind: 'disclose'; key: string }
     | { kind: 'stat'; key: string; prompt: StatPrompt };
+
+/** The pair the "Add short game" row stands in for while the fold is closed. */
+const SHORT_GAME_KEYS: readonly StatEventKey[] = ['short_game_difficulty', 'short_game_strokes'];
+
+/**
+ * Names for prompts the model gives an EMPTY label on purpose. `first_putt_m`
+ * renders under its bucket row without a heading (it is a refinement, not its
+ * own question), but it still owes a screen reader a name and the explainer
+ * sheet a card title.
+ */
+const STAT_UNLABELLED: Partial<Record<StatEventKey, { aria: string; title: string }>> = {
+    first_putt_m: { aria: 'First putt, exact distance', title: 'Exact distance' },
+};
+
+/**
+ * The `$each` identity of a prompt row. The OPTION SET rides in it: a row's
+ * buttons are built once, imperatively, because a key's options are fixed —
+ * except for a refinement, whose set follows its parent's answer (2–4m offers
+ * four chips, > 8m five). Same key, different question, so the row remounts.
+ */
+function statRowKey(prompt: StatPrompt): string {
+    const control = prompt.control;
+    if (control.kind !== 'segments') return `stat:${prompt.key}`;
+    return `stat:${prompt.key}|${control.options.map((o) => o.value).join(',')}`;
+}
+
+/** The prompt's name for anything that is not the visible heading. */
+function statPromptName(key: StatEventKey, label: string): { aria: string; title: string } {
+    return STAT_UNLABELLED[key] ?? { aria: label, title: label };
+}
 
 interface PointerState {
     id: number;
@@ -505,6 +553,62 @@ export class ScoreEntryComponent extends Component {
             }
             & .se-stats__seg { display: flex; gap: ${s('sm')}; justify-content: center; }
 
+            /* A refinement of the row above it (the metre chips under First
+               putt), so it has no heading of its own: pulled up out of the
+               body's group gap and inset, to read as part of that row rather
+               than as the next question.
+
+               ARITHMETIC: .se-stats__body sets gap: ${s('xl')} between
+               groups; this margin cancels ${s('md')} of it, leaving the
+               refinement ${s('md')} under its bucket row against the ${s('xl')}
+               that separates real questions. Change the body gap and this
+               number has to move with it. */
+            & .se-stats__group--sub {
+                margin-top: -${s('md')};
+                padding: 0 ${s('md')};
+            }
+            /* .tight is spelled out because the shared row builder puts it on
+               any row of four or more chips, and .se-stats .se-seg.tight
+               further down this sheet would otherwise tie on specificity and
+               win on source order — leaving the wide refine rows full height
+               while the narrow ones went quiet. */
+            & .se-stats__group--sub .se-seg,
+            & .se-stats__group--sub .se-seg.tight {
+                padding: 11px 4px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                border-radius: 11px;
+                color: rgba(255, 255, 255, 0.45);
+                &.on-neutral { color: #fff; }
+                /* A sub chip is ~57px on a 375px plate — narrower than the
+                   ~62px of a full-width row, because this group adds its own
+                   md padding on each side. The metre sets fit that at
+                   0.85rem, so no refinement takes .tighter today; the rule is
+                   here for one whose options are words. */
+                &.tighter { font-size: 0.78rem; }
+            }
+
+            /* The short-game fold. Quiet enough to read as an aside on a hole
+               that did not need it, worded because every control on this plate
+               is (design-guidelines §4).
+
+               No aria-expanded/aria-controls: this button does not toggle a
+               region it keeps pointing at — the tap destroys it and puts the
+               two prompt groups in its place, and focus moves onto the first
+               of them, which is what announces the change. A button that
+               reports expanded=true and is then removed says less, not more. */
+            & .se-stats__disclose {
+                align-self: center;
+                padding: ${s('sm')} ${s('lg')};
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 999px;
+                background: transparent;
+                color: rgba(255, 255, 255, 0.6);
+                font-family: inherit; font-size: 0.9rem; font-weight: 600;
+                cursor: pointer;
+                &:active { background: rgba(255, 255, 255, 0.08); }
+            }
+
             /* The one line of dynamic text on the card: what the scorecard is
                about to fill in, or that it disagrees with what is stored. Never
                a nudge, never a validation message (§3.5). */
@@ -576,6 +680,13 @@ export class ScoreEntryComponent extends Component {
                 &.on-neutral { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.45); color: #fff; }
                 /* Four or five options (first putt) have to fit a 375px plate. */
                 &.tight { padding: 18px 4px; font-size: 0.9rem; }
+                /* FIVE options leave ~62px a chip at 375px, and a segment never
+                   truncates (nowrap, no ellipsis) — a two-word label like the
+                   Approach row's "On green" spills out of its border one step
+                   up. Measured in Chrome at 375px: the overflow stops between
+                   0.85rem and 0.8rem, so every five-option row steps down
+                   together rather than one of them alone. */
+                &.tighter { padding: 18px 2px; font-size: 0.78rem; }
             }
 
             & .se-stats__foot {
@@ -788,6 +899,21 @@ export class ScoreEntryComponent extends Component {
     private statsOpen = new Signal(false);
     /** The stats step's "What these mean" sheet. Closed with the step itself. */
     private explainOpen = new Signal(false);
+    /**
+     * "Add short game" tapped open. Transient by design: the model says only
+     * whether the pair is FOLDABLE on this hole (a value already captured makes
+     * it `expanded` forever), and this flag is the golfer having asked for it on
+     * THIS (ball, hole) visit. Cleared whenever the cursor moves.
+     */
+    private shortGameOpen = new Signal(false);
+    /**
+     * The `ball|hole` `shortGameOpen` currently describes, `null` while the
+     * keypad is closed. Only a change of it is a new visit — see
+     * `newShortGameVisit`.
+     */
+    private shortGameVisit: string | null = null;
+    /** The stats step's row list, once rendered. */
+    private statsBodyEl: HTMLElement | null = null;
     // Per-hole metadata toggles (umbrella GIR/fairway) for the open ball+hole,
     // committed alongside strokes. Reseeded from stored state when the selected
     // ball/hole changes (`lastMetaKey` guards against clobbering live toggles).
@@ -1248,6 +1374,9 @@ export class ScoreEntryComponent extends Component {
         // (umbrella GIR/fairway, scoped to the hole's par via `appliesWhen`),
         // then a hairline, then the player's own stat prompts.
         const statsBody = this.ref(frag, 'statsBody');
+        // Kept so the fold can hand focus to a row it just revealed without
+        // searching the whole document for it.
+        this.statsBodyEl = statsBody;
         this.$each(
             statsBody,
             new Computed(() => this.statBodyRows()),
@@ -1286,6 +1415,8 @@ export class ScoreEntryComponent extends Component {
                     // Closing the keypad by any route (including a route change
                     // that clears `keypadOpen`) commits what was captured.
                     this.svc.seedStatStep(null);
+                    // No cell, so the next open is a new visit whatever it is.
+                    this.newShortGameVisit(null);
                     return;
                 }
                 const ball = this.ballsInGroup()[this.currentBallIdx.get()];
@@ -1545,7 +1676,12 @@ export class ScoreEntryComponent extends Component {
         const ball = this.ballsInGroup()[this.currentBallIdx.get()];
         const ph = this.currentHole();
         const playerId = ball ? this.svc.statSubject(ball) : null;
-        this.svc.seedStatStep(playerId && ph ? { playerId, playHoleId: ph.playHoleId } : null);
+        const cell = playerId && ph ? { playerId, playHoleId: ph.playHoleId } : null;
+        this.svc.seedStatStep(cell);
+        // In the SAME transition as the step, so the synchronous `selectBall`
+        // path draws the next ball's fold correctly without waiting for the
+        // seeding effect. Idempotent, so that effect can call it again.
+        this.newShortGameVisit(ball && ph ? `${ball.id}|${ph.playHoleId}` : null);
     }
 
     /**
@@ -1749,10 +1885,12 @@ export class ScoreEntryComponent extends Component {
                 glabel: { textContent: mi.label },
                 miss: {
                     className: () => (this.pendingMeta.get()[mi.key] ? 'se-seg' : 'se-seg on-miss'),
+                    'aria-pressed': () => String(!this.pendingMeta.get()[mi.key]),
                     onclick: () => this.setMeta(mi.key, false),
                 },
                 hit: {
                     className: () => (this.pendingMeta.get()[mi.key] ? 'se-seg on-hit' : 'se-seg'),
+                    'aria-pressed': () => String(!!this.pendingMeta.get()[mi.key]),
                     onclick: () => this.setMeta(mi.key, true),
                 },
             },
@@ -1809,57 +1947,186 @@ export class ScoreEntryComponent extends Component {
         return this.metaInputs().filter((mi) => !asked.has(mi.key));
     };
 
+    /**
+     * A new (ball, hole) visit's fold. Closed by default — but a hole that
+     * already CARRIES a short-game answer (from the server, or from an earlier
+     * visit this round) opens unfolded, and stays unfolded for the visit even
+     * if that answer is then cleared.
+     *
+     * Idempotent per cell, so the seeding path can call it unconditionally:
+     * `visit` names the (ball, hole) the current `shortGameOpen` describes, and
+     * only a CHANGE of cell re-reads the model. A background stats load lands
+     * on the same cell and must not reset a fold the golfer opened.
+     *
+     * `untrack`ed on purpose: this runs from `seedStatStepForCursor()`, which
+     * also writes the stat revision. Subscribing it here would re-run the
+     * seeding effect on every tap.
+     */
+    private newShortGameVisit(visit: string | null): void {
+        if (visit === this.shortGameVisit) return;
+        this.shortGameVisit = visit;
+        this.shortGameOpen.set(
+            visit !== null && untrack(() => this.svc.statShortGameDisclosure()) === 'expanded',
+        );
+    }
+
+    /**
+     * Sticky unfold, called after every stat write. The model reads `expanded`
+     * off the VALUES, so the tap that clears the last short-game answer would
+     * otherwise flip the pair back to `collapsed` and swap the rows for the
+     * disclosure button under the golfer's finger.
+     *
+     * A write to one of the pair's OWN keys latches unconditionally: the golfer
+     * demonstrably had the rows in front of them, whatever the post-write
+     * disclosure now says. Reading the disclosure instead would miss the case
+     * where the rows were shown by a mid-visit refresh rather than by this
+     * visit's seed. Any other key latches only while the pair reads expanded.
+     */
+    private keepShortGameUnfolded(written: StatEventKey): void {
+        if (SHORT_GAME_KEYS.includes(written)) {
+            this.shortGameOpen.set(true);
+            return;
+        }
+        if (this.svc.statShortGameDisclosure() === 'expanded') this.shortGameOpen.set(true);
+    }
+
+    /**
+     * Whether the short-game pair is folded away right now: the model says the
+     * hole allows folding, and this visit has neither answered it nor tapped it
+     * open.
+     */
+    private shortGameFolded = (): boolean =>
+        this.svc.statShortGameDisclosure() === 'collapsed' && !this.shortGameOpen.get();
+
+    /**
+     * The ONE reading of the fold, for both the body and the explainer sheet:
+     * the prompts on the card, and where the "Add short game" stand-in goes
+     * (`foldAt === -1` = nowhere). Two independent filters is how a sheet
+     * starts explaining rows nobody can see.
+     */
+    private shownStatPrompts = (): { prompts: StatPrompt[]; foldAt: number } => {
+        const all = this.svc.statPrompts();
+        if (!this.shortGameFolded()) return { prompts: all, foldAt: -1 };
+        const prompts: StatPrompt[] = [];
+        let foldAt = -1;
+        for (const prompt of all) {
+            // The stand-in takes the pair's own position — between the approach
+            // and the putting prompts, where the shot it describes was played.
+            if (SHORT_GAME_KEYS.includes(prompt.key)) {
+                if (foldAt === -1) foldAt = prompts.length;
+                continue;
+            }
+            prompts.push(prompt);
+        }
+        return { prompts, foldAt };
+    };
+
     private statBodyRows = (): StatBodyRow[] => {
         const metas = this.metaInputsForStep();
-        const prompts = this.svc.statPrompts();
+        const { prompts, foldAt } = this.shownStatPrompts();
         const rows: StatBodyRow[] = metas.map((input) => ({
             kind: 'meta',
             key: `meta:${input.key}`,
             input,
         }));
-        if (metas.length > 0 && prompts.length > 0) rows.push({ kind: 'rule', key: 'rule' });
-        for (const prompt of prompts) rows.push({ kind: 'stat', key: `stat:${prompt.key}`, prompt });
+        if (metas.length > 0 && (prompts.length > 0 || foldAt !== -1))
+            rows.push({ kind: 'rule', key: 'rule' });
+        // `<=`: the stand-in can land past the last shown prompt.
+        for (let i = 0; i <= prompts.length; i++) {
+            if (i === foldAt) rows.push({ kind: 'disclose', key: 'disclose:short-game' });
+            const prompt = prompts[i];
+            if (prompt) rows.push({ kind: 'stat', key: statRowKey(prompt), prompt });
+        }
         return rows;
     };
 
     private statBodyRow(row: StatBodyRow, track: (d: () => void) => void): HTMLElement {
         if (row.kind === 'meta') return this.metaChip(row.input, track);
         if (row.kind === 'rule') return this.wireEl(statRuleTpl, {}, track);
-        return row.prompt.control.kind === 'segments'
-            ? this.statSegments(row.prompt, track)
-            : this.statStepper(row.prompt, track);
+        if (row.kind === 'disclose')
+            return this.wireEl(
+                sgDiscloseTpl,
+                {
+                    disclose: {
+                        onclick: () => {
+                            this.shortGameOpen.set(true);
+                            this.focusRevealedShortGame();
+                        },
+                    },
+                },
+                track,
+            );
+        const el =
+            row.prompt.control.kind === 'segments'
+                ? this.statSegments(row.prompt, track)
+                : this.statStepper(row.prompt, track);
+        // Which question this group asks, for anything that needs to find a row
+        // without reading its heading text.
+        el.dataset.stat = row.prompt.key;
+        return el;
+    }
+
+    /**
+     * The button the golfer pressed is gone the moment the pair unfolds, and
+     * focus with it. Hand it to the first control that replaced it, so a
+     * keyboard or screen-reader user lands on the answer they asked for.
+     */
+    private focusRevealedShortGame(): void {
+        const first = this.statsBodyEl?.querySelector<HTMLElement>(
+            `[data-stat="${SHORT_GAME_KEYS[0]}"] .se-seg`,
+        );
+        first?.focus?.();
     }
 
     private statSegments(prompt: StatPrompt, track: (d: () => void) => void): HTMLElement {
         const control = prompt.control;
         const options = control.kind === 'segments' ? control.options : [];
-        // Four or five buckets (first putt) only fit a phone plate narrowed.
-        const tight = options.length >= 4 ? ' tight' : '';
-        const el = this.wireEl(
-            statSegTpl,
-            {
-                glabel: { textContent: prompt.label },
-                // Only GIR has anything to say under its row (§3.4b); every
-                // other prompt binds the empty string and stays hidden, so the
-                // card keeps its wordless default.
-                gnote: {
-                    textContent: () => (prompt.key === 'gir' ? this.girNote() : ''),
-                    className: () =>
-                        prompt.key === 'gir' && this.girNote() !== ''
-                            ? `se-stats__note${this.svc.statGirState().state === 'disagree' ? ' warn' : ''}`
-                            : 'se-stats__note hidden',
-                },
-                // The pending/disagree distinction is carried visually by the
-                // line above; say it out loud too, on the group the buttons
-                // live in.
-                seg: {
-                    role: 'group',
-                    'aria-label': () =>
-                        prompt.key === 'gir' ? this.girAria() : prompt.label,
-                },
-            },
-            track,
-        );
+        // Four or more buckets only fit a phone plate narrowed. The second step
+        // down is keyed on NEED, not on the count: five short labels ('< 1m',
+        // '10m', 'Hit') fit at 0.9rem, while five chips carrying a word as long
+        // as 'On green' do not — measured at 375px, that label is 68px inside a
+        // 62px chip. So: five options AND a label past six characters.
+        const longest = options.reduce((n, o) => Math.max(n, o.label.length), 0);
+        const tight =
+            options.length >= 5 && longest > 6
+                ? ' tight tighter'
+                : options.length >= 4
+                  ? ' tight'
+                  : '';
+        const name = statPromptName(prompt.key, prompt.label);
+        // A model label of '' means "this row is a refinement of the one above
+        // it": no heading, no divider, and its name lives on the group instead.
+        const el = prompt.label === ''
+            ? this.wireEl(
+                  statSubSegTpl,
+                  { seg: { role: 'group', 'aria-label': name.aria } },
+                  track,
+              )
+            : this.wireEl(
+                  statSegTpl,
+                  {
+                      glabel: { textContent: prompt.label },
+                      // Only GIR has anything to say under its row (§3.4b);
+                      // every other prompt binds the empty string and stays
+                      // hidden, so the card keeps its wordless default.
+                      gnote: {
+                          textContent: () => (prompt.key === 'gir' ? this.girNote() : ''),
+                          className: () =>
+                              prompt.key === 'gir' && this.girNote() !== ''
+                                  ? `se-stats__note${this.svc.statGirState().state === 'disagree' ? ' warn' : ''}`
+                                  : 'se-stats__note hidden',
+                      },
+                      // The pending/disagree distinction is carried visually by
+                      // the line above; say it out loud too, on the group the
+                      // buttons live in.
+                      seg: {
+                          role: 'group',
+                          'aria-label': () =>
+                              prompt.key === 'gir' ? this.girAria() : name.aria,
+                      },
+                  },
+                  track,
+              );
         const host = this.ref(el, 'seg');
         for (const option of options) {
             const btn = this.wireEl(
@@ -1871,6 +2138,11 @@ export class ScoreEntryComponent extends Component {
                             `se-seg${tight}${
                                 this.svc.statValue(prompt.key) === option.value ? ' on-neutral' : ''
                             }`,
+                        // Toggle buttons, not radios: tap-again-to-deselect
+                        // means "no selection" is a legal state and every chip
+                        // can be un-pressed, which role=radio cannot say.
+                        'aria-pressed': () =>
+                            String(this.svc.statValue(prompt.key) === option.value),
                         // Tapping the selected option de-selects it — the only
                         // way back to "did not answer", which is a different
                         // fact from answering the low option.
@@ -1956,19 +2228,25 @@ export class ScoreEntryComponent extends Component {
      * a card that has to stay quiet.
      */
     private statExplainerCards(): { key: string; title: string; text: string }[] {
-        return this.svc
-            .statPrompts()
-            .map((p) => ({ key: p.key, title: p.label, text: statExplainer(p.key) }));
+        return this.shownStatPrompts().prompts.map((p) => ({
+            key: p.key,
+            // A row that renders without a heading still gets a real card
+            // title — an untitled card explains nothing.
+            title: statPromptName(p.key, p.label).title,
+            text: statExplainer(p.key),
+        }));
     }
 
     /** Answer (or, with `null`, un-answer) one stats prompt, then mirror it. */
     private answerStat(key: StatEventKey, value: string | null): void {
         this.svc.answerStat(key, value);
+        this.keepShortGameUnfolded(key);
         this.mirrorStatToMeta(key);
     }
 
     private stepStat(key: StatEventKey, delta: number): void {
         this.svc.stepStat(key, delta);
+        this.keepShortGameUnfolded(key);
         this.mirrorStatToMeta(key);
     }
 

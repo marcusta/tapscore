@@ -34,6 +34,7 @@ function round(m: StatMeasures): PlayerRoundStats {
         name: null,
         holeCount: 18,
         measures: m,
+        girArrivalMetres: [],
     };
 }
 

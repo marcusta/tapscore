@@ -9,11 +9,18 @@ import {
     priorityMagnitude,
     puttingPanel,
     shortGamePanel,
+    sumGirArrivalMetres,
     teePanel,
     TREND_MIN_POINTS,
     waterfallMagnitude,
 } from '../../src/stats/stats-dashboard-model';
-import { SG_BASELINES_V1, strokesLostV3, ZERO_MEASURES } from '../../src/round/stat-measures';
+import {
+    SG_BASELINES_V1,
+    strokesLostForBundle,
+    strokesLostV3,
+    ZERO_MEASURES,
+    type SgGirArrivalMetres,
+} from '../../src/round/stat-measures';
 import type { PlayerRoundStats, StatMeasures } from '../../src/api/player-stats.gen';
 
 // The (rows → screen) reduction. Pure: no service, no DOM, no clock. Twin of
@@ -34,6 +41,7 @@ function row(
         name: null,
         holeCount: 18,
         measures: ZERO_MEASURES,
+        girArrivalMetres: [],
         ...over,
     };
 }
@@ -566,4 +574,98 @@ test('a putting panel on first-putt distances alone has an absent distribution, 
     expect(p.puttDistribution.zero.value).toBeNull();
     expect(p.puttDistribution.threePlus.value).toBeNull();
     expect(p.puttsPerHoleByPar.par4.value).toBeNull();
+});
+
+// --- Exact-metre arrival, into strokes gained --------------------------------
+//
+// The metre cells ride on the ROW, not on the measures, so every strokes-lost
+// call site has to be handed the cells of the rows it is pricing — the window
+// total from the window's rows, a per-round strip from that round's own.
+
+test('the window prices arrival metres over the window rows, not the page totals', () => {
+    // Nine par-3 greens hit, two putts each: the bucket says every arrival was
+    // 2–4 m, the cells say where in that band they actually finished.
+    const m = measures({
+        holesScored: 9,
+        attHolesPar3Gir: 9,
+        attStrokes: 27,
+        attPutts: 18,
+        attGirFirstPutt2To4m: 9,
+    });
+    const cells = (over: SgGirArrivalMetres[]) => over;
+    const near = row({
+        roundId: 'near',
+        date: '2026-05-02',
+        measures: m,
+        girArrivalMetres: cells([{ meters: 2, holes: 9 }]),
+    });
+    const far = row({
+        roundId: 'far',
+        date: '2026-05-01',
+        measures: m,
+        girArrivalMetres: cells([{ meters: 4, holes: 9 }]),
+    });
+
+    const bundle = SG_BASELINES_V1.hcp12;
+    const both = buildDashboardModel([near, far], bundle);
+
+    // Two rows, two prices: the same measures priced against different
+    // arrivals. Without the threading these would be identical.
+    const perRound = (id: string) => both.rounds.find((r) => r.id === id)!.waterfall.putting!;
+    expect(perRound('near')).not.toBeCloseTo(perRound('far'), 6);
+
+    // The window total is the SUM of the two rounds' cells, which is what the
+    // paging makes non-negotiable: `girArrivalMetresTotals` covers page one
+    // only, and a 30-round window is several pages.
+    expect(sumGirArrivalMetres([near, far])).toEqual([
+        { meters: 2, holes: 9 },
+        { meters: 4, holes: 9 },
+    ]);
+    const totals = measures({
+        holesScored: 18,
+        attHolesPar3Gir: 18,
+        attStrokes: 54,
+        attPutts: 36,
+        attGirFirstPutt2To4m: 18,
+    });
+    expect(both.waterfall.putting!).toBeCloseTo(
+        strokesLostForBundle(totals, bundle, [
+            { meters: 2, holes: 9 },
+            { meters: 4, holes: 9 },
+        ]).putting!,
+        6,
+    );
+
+    // Drop the older round from the window and its metres go with it.
+    const one = buildDashboardModel([near], bundle);
+    expect(one.waterfall.putting!).toBeCloseTo(perRound('near'), 6);
+
+    // A row with no cells prices exactly as it did before the feature.
+    const plain = row({ roundId: 'plain', date: '2026-05-02', measures: m });
+    expect(buildDashboardModel([plain], bundle).waterfall.putting!).toBeCloseTo(
+        strokesLostForBundle(m, bundle).putting!,
+        6,
+    );
+});
+
+test('the putting trend prices each point against that round’s own metres', () => {
+    const m = measures({
+        holesScored: 9,
+        attHolesPar3Gir: 9,
+        attStrokes: 27,
+        attPutts: 18,
+        attGirFirstPutt2To4m: 9,
+    });
+    const rows = ['a', 'b', 'c'].map((id, i) =>
+        row({
+            roundId: id,
+            date: `2026-05-0${i + 1}`,
+            measures: m,
+            // Oldest arrived furthest away, newest closest — the trend has to
+            // move even though the measures are identical.
+            girArrivalMetres: [{ meters: 4 - i, holes: 9 }],
+        }),
+    );
+    const points = buildTrends(rows, SG_BASELINES_V1.hcp12).find((t) => t.id === 'putting')!.points;
+    expect(points[0]).not.toBeCloseTo(points[2]!, 6);
 });

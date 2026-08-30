@@ -22,15 +22,29 @@ struct StatOption: Equatable, Sendable, Identifiable {
     }
 }
 
-/// How a prompt is answered. Deliberately tiny — two shapes cover all seven keys.
+/// How a prompt is answered. Deliberately tiny — three shapes cover every key.
 enum StatControl: Equatable, Sendable {
     /// Mutually exclusive options. Tapping the selected one deselects it.
     case segments([StatOption])
     /// A counter. `max == nil` means unbounded upward; the top value renders
     /// as "n+" so `putts` can mean "3 or more".
     case stepper(min: Int, max: Int?)
+    /// A refinement of another key's answer: the option set depends on the
+    /// PARENT key's current value. This shape lives only in the catalogue —
+    /// `StatStep.prompts` resolves it to plain `segments` with the options the
+    /// parent's answer selects, so views still render a chip row and decide
+    /// nothing. A parent value with no entry means the refinement is unaskable
+    /// (and `visibility` reads it `contradicted`).
+    case refine(parent: StatEventKey, optionsByParent: [String: [StatOption]])
 }
 
+/// One row of the capture card.
+///
+/// An EMPTY `label` is part of the contract, not a missing string: it marks a
+/// prompt that refines the row above it rather than asking its own question, so
+/// a renderer draws no heading and places the row tight under its parent. A
+/// non-visual surface (VoiceOver, the explainer sheet) must supply a name of its
+/// own — see `StatCaptureCopy.name`.
 struct StatPrompt: Equatable, Sendable, Identifiable {
     var key: StatEventKey
     var label: String
@@ -67,7 +81,7 @@ enum StatVocabulary {
     /// shot, the recovery is the next shot.
     static let order: [StatEventKey] = [
         .teeResult, .teeMissDir, .recoveryOk, .gir, .greenMissDir, .shortGameDifficulty,
-        .shortGameStrokes, .firstPutt, .putts, .penalties, .penaltySource,
+        .shortGameStrokes, .firstPutt, .firstPuttM, .putts, .penalties, .penaltySource,
     ]
 
     /// Par 3 has no tee shot worth grading — the same shape the format layer
@@ -80,10 +94,13 @@ enum StatVocabulary {
         case .teeMissDir: return "Which side"
         case .recoveryOk: return "Recovery"
         case .gir: return "Green in regulation"
-        case .greenMissDir: return "Missed where"
+        case .greenMissDir: return "Approach"
         case .shortGameDifficulty: return "Short game"
         case .shortGameStrokes: return "Shots to the green"
         case .firstPutt: return "First putt"
+        // The refinement row renders directly under the selected bucket; a
+        // leading label would just repeat "First putt".
+        case .firstPuttM: return ""
         case .putts: return "Putts"
         case .penalties: return "Penalties"
         case .penaltySource: return "Penalty on"
@@ -102,12 +119,16 @@ enum StatVocabulary {
             return .segments([StatOption("left", "Left"), StatOption("right", "Right")])
         case .gir:
             return .segments([StatOption("0", "Miss"), StatOption("1", "Hit")])
+        // `hit_late` is the fifth answer: the first green attempt DID hit the
+        // green, just after regulation — so there was no chip, and the
+        // short-game prompts are contradicted by it.
         case .greenMissDir:
             return .segments([
                 StatOption("long", "Long"),
                 StatOption("short", "Short"),
                 StatOption("left", "Left"),
                 StatOption("right", "Right"),
+                StatOption("hit_late", "On green"),
             ])
         case .firstPutt:
             return .segments([
@@ -116,6 +137,43 @@ enum StatVocabulary {
                 StatOption("2_to_4m", "2–4m"),
                 StatOption("4_to_8m", "4–8m"),
                 StatOption("over_8m", "> 8m"),
+            ])
+        // Exact metres, an optional refinement of the bucket. Closed
+        // vocabulary, one option set per FINE bucket — the legacy coarse
+        // values have no entry, so a legacy prefill reads `contradicted` and
+        // never shows the row. Values are the exact TEXT the server stores
+        // ('0.3' … '20'); '20' renders "20+".
+        case .firstPuttM:
+            return .refine(parent: .firstPutt, optionsByParent: [
+                "inside_1m": [
+                    StatOption("0.3", "0.3m"),
+                    StatOption("0.5", "0.5m"),
+                    StatOption("0.8", "0.8m"),
+                ],
+                "1_to_2m": [
+                    StatOption("1", "1m"),
+                    StatOption("1.5", "1.5m"),
+                    StatOption("2", "2m"),
+                ],
+                "2_to_4m": [
+                    StatOption("2.5", "2.5m"),
+                    StatOption("3", "3m"),
+                    StatOption("3.5", "3.5m"),
+                    StatOption("4", "4m"),
+                ],
+                "4_to_8m": [
+                    StatOption("5", "5m"),
+                    StatOption("6", "6m"),
+                    StatOption("7", "7m"),
+                    StatOption("8", "8m"),
+                ],
+                "over_8m": [
+                    StatOption("10", "10m"),
+                    StatOption("12", "12m"),
+                    StatOption("14", "14m"),
+                    StatOption("16", "16m"),
+                    StatOption("20", "20+"),
+                ],
             ])
         case .shortGameDifficulty:
             return .segments([
@@ -144,6 +202,17 @@ enum StatVocabulary {
     static func stepperText(_ value: Int, max: Int?) -> String {
         if let max, value >= max { return "\(value)+" }
         return "\(value)"
+    }
+
+    /// The option set a `refine` control offers for one parent value, or `nil`
+    /// when that parent value has no refinement (unanswered, or a legacy
+    /// value). Exposed for `StatStep` and the tests; views never call it — they
+    /// get the resolved `segments` control from `prompts`.
+    static func refineOptions(for key: StatEventKey, parentValue: String?) -> [StatOption]? {
+        guard case .refine(_, let optionsByParent) = control(for: key), let parentValue else {
+            return nil
+        }
+        return optionsByParent[parentValue]
     }
 }
 
@@ -226,8 +295,19 @@ struct StatStep: Equatable, Sendable {
             return StatPrompt(
                 key: key,
                 label: StatVocabulary.label(for: key),
-                control: StatVocabulary.control(for: key))
+                control: resolvedControl(key))
         }
+    }
+
+    /// The control a renderer gets: a `refine` entry is resolved to plain
+    /// `segments` carrying the option set the parent's current answer selects,
+    /// so the view draws an ordinary chip row and decides nothing. Only called
+    /// for visible keys, where the option set is guaranteed to exist.
+    private func resolvedControl(_ key: StatEventKey) -> StatControl {
+        let control = StatVocabulary.control(for: key)
+        guard case .refine(let parent, _) = control else { return control }
+        return .segments(
+            StatVocabulary.refineOptions(for: key, parentValue: value(of: parent)) ?? [])
     }
 
     var isEmpty: Bool { prompts.isEmpty }
@@ -272,18 +352,31 @@ struct StatStep: Equatable, Sendable {
             guard modules.approach, visibility(.gir) == .visible else { return .unreadable }
             return value(of: .gir) == "0" ? .visible : .contradicted
         case .shortGameDifficulty:
-            // Answered-miss, not merely unanswered: an untouched GIR says
-            // nothing about whether there was a short-game shot.
+            // Answered, not merely untouched: an untouched GIR says nothing
+            // about whether there was a short-game shot. A hit green keeps the
+            // prompts too (a par-5 chip on for GIR is a real chip) —
+            // `shortGameDisclosure` tells the view to fold them away by
+            // default there. `hit_late` is the one answer that RULES OUT a
+            // chip: the green attempt finished on the green.
             guard modules.shortGame, visibility(.gir) == .visible else { return .unreadable }
-            return value(of: .gir) == "0" ? .visible : .contradicted
+            if value(of: .greenMissDir) == "hit_late" { return .contradicted }
+            return value(of: .gir) != nil ? .visible : .contradicted
         case .shortGameStrokes:
             // The SAME gate as `shortGameDifficulty`: the counter is asked
             // whenever there was a short-game shot, not only once a difficulty
             // has been picked.
             guard modules.shortGame, visibility(.gir) == .visible else { return .unreadable }
-            return value(of: .gir) == "0" ? .visible : .contradicted
+            if value(of: .greenMissDir) == "hit_late" { return .contradicted }
+            return value(of: .gir) != nil ? .visible : .contradicted
         case .firstPutt, .putts:
             return modules.putting ? .visible : .unreadable
+        case .firstPuttM:
+            // Refines `first_putt`, so it inherits that row's readability;
+            // without a FINE bucket selected (unanswered, or a legacy coarse
+            // value) there is nothing to refine.
+            guard modules.putting, visibility(.firstPutt) == .visible else { return .unreadable }
+            return StatVocabulary.refineOptions(for: key, parentValue: value(of: .firstPutt)) != nil
+                ? .visible : .contradicted
         case .penalties:
             return modules.penalties ? .visible : .unreadable
         case .penaltySource:
@@ -293,6 +386,26 @@ struct StatStep: Equatable, Sendable {
     }
 
     private func isVisible(_ key: StatEventKey) -> Bool { visibility(key) == .visible }
+
+    /// How the short-game rows present on a GIR-hit hole ("Add short game").
+    /// `none` = the rows render normally (missed green) or are off the card
+    /// entirely; `collapsed` = visible but folded behind the disclosure row,
+    /// because a chip on a green hit in regulation is the exception;
+    /// `expanded` = a value exists, so the rows render normally. The transient
+    /// "tapped open this visit" flag is the view's, not the model's.
+    enum ShortGameDisclosure: String, Equatable, Sendable {
+        case none
+        case collapsed
+        case expanded
+    }
+
+    /// See `ShortGameDisclosure`. Only ever `collapsed` on a GIR-hit hole.
+    var shortGameDisclosure: ShortGameDisclosure {
+        guard value(of: .gir) == "1" else { return .none }
+        guard visibility(.shortGameDifficulty) == .visible else { return .none }
+        return value(of: .shortGameDifficulty) == nil && value(of: .shortGameStrokes) == nil
+            ? .collapsed : .expanded
+    }
 
     // MARK: Reading
 
@@ -317,6 +430,12 @@ struct StatStep: Equatable, Sendable {
     /// nothing sends nothing.
     mutating func answer(_ key: StatEventKey, value newValue: String?) {
         guard isVisible(key) else { return }
+        // A refine value must belong to the option set its parent's CURRENT
+        // answer selects — a metre from another bucket is not an answer here.
+        if let newValue, case .refine(let parent, _) = StatVocabulary.control(for: key) {
+            let options = StatVocabulary.refineOptions(for: key, parentValue: value(of: parent))
+            guard let options, options.contains(where: { $0.value == newValue }) else { return }
+        }
         // Rule 2 (proposal §3.4b): a manual interaction locks GIR for the life
         // of this step. Un-answering counts — "I do not want this filled in" is
         // as deliberate as tapping Hit.
@@ -426,7 +545,19 @@ struct StatStep: Equatable, Sendable {
             for key in StatVocabulary.order {
                 let before = draft[key]
                 switch visibility(key) {
-                case .visible: continue
+                case .visible:
+                    // Bucket coherence for a refine key: the row is on the
+                    // card, but its answer belongs to a bucket the parent no
+                    // longer holds — clear it (on the server too, matching
+                    // `contradicted` semantics).
+                    guard case .refine(let parent, _) = StatVocabulary.control(for: key),
+                        let current = value(of: key)
+                    else { continue }
+                    let options = StatVocabulary.refineOptions(
+                        for: key, parentValue: value(of: parent))
+                    if options?.contains(where: { $0.value == current }) != true {
+                        record(key, nil)
+                    }
                 case .contradicted: record(key, nil)
                 case .unreadable: draft[key] = nil
                 }

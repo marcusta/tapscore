@@ -87,10 +87,14 @@ final class RoundStatsStoreTests: XCTestCase {
         "strokesVsParMissBunker", "dblPenalty", "dblFailedRecovery", "dblMultiChip",
         "dblThreePutt", "dblTroubleTee", "dblFullSwing", "dblUnattributed", "dblPenaltyTee",
         "dblPenaltyApproach", "dblPenaltyShort", "dblPenaltyUnknown",
+        "firstPuttMRecorded", "firstPuttMSum", "firstPuttMRecordedGir", "firstPuttMSumGir",
+        "metersMadeSum", "metersMadeHoles", "onePuttsUnmeasured", "greenHitLate",
+        "chipGirHoles", "chipGirOnePutt", "chipGirPar5", "chipGirPar5OnePutt",
     ]
 
     private static func roundJSON(
-        id: String, date: String, strokes: Int = 84, putts: Int = 34
+        id: String, date: String, strokes: Int = 84, putts: Int = 34,
+        arrivals: [(meters: Double, holes: Double)] = []
     ) -> String {
         let overrides: [String: Int] = [
             "holesScored": 18, "strokesTotal": strokes, "parTotal": 72,
@@ -102,10 +106,15 @@ final class RoundStatsStoreTests: XCTestCase {
             "attFairwayPar4": 18, "attGirFirstPutt2To4m": 18,
         ]
         let fields = Self.measureFields.map { "\"\($0)\":\(overrides[$0] ?? 0)" }
+        // The exact-metre arrivals ride BESIDE the measures (migration 064) —
+        // a row's own cells, always present, empty when nothing was measured.
+        let cells = arrivals
+            .map { "{\"meters\":\($0.meters),\"holes\":\($0.holes)}" }
+            .joined(separator: ",")
         return """
         {"roundId":"\(id)","date":"\(date)","courseName":"Linköpings GK","courseId":"c1",
          "roundType":"full_18","venueType":"outdoor","name":null,"holeCount":18,
-         "measures":{\(fields.joined(separator: ","))}}
+         "measures":{\(fields.joined(separator: ","))},"girArrivalMetres":[\(cells)]}
         """
     }
 
@@ -139,7 +148,7 @@ final class RoundStatsStoreTests: XCTestCase {
                     format: "2026-%02d-%02d", 7 - (ordinal / 30), max(1, 30 - (ordinal % 30))),
                 courseName: "Linköpings GK", courseId: "c1", roundType: .full18,
                 venueType: .outdoor, name: nil, holeCount: 18,
-                measures: StatMeasuresMath.zero)
+                measures: StatMeasuresMath.zero, girArrivalMetres: [])
         }
     }
 
@@ -399,7 +408,8 @@ final class RoundStatsStoreTests: XCTestCase {
             PlayerRoundStats(
                 roundId: "r-\(index)", date: String(format: "2026-07-%02d", 30 - index),
                 courseName: nil, courseId: "c1", roundType: .full18, venueType: .outdoor,
-                name: nil, holeCount: 18, measures: StatMeasuresMath.zero)
+                name: nil, holeCount: 18, measures: StatMeasuresMath.zero,
+                girArrivalMetres: [])
         }
 
         // The newest round has 11 rounds behind it.

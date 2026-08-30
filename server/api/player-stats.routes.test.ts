@@ -238,6 +238,37 @@ test('the summary is the CALLER’s, and there is no path to anyone else’s', a
     ]);
 });
 
+test('the make curve is session-gated, self-only, and speaks the wire row shape', async () => {
+    const { ctx, courseId, teeId } = await setup();
+    expect((await req(ctx.app, 'GET', '/api/players/me/stats/first-putt-curve')).status).toBe(401);
+
+    const mine = await register(ctx, 'curveowner');
+    await ctx.playerStatsService.putConfig(mine.id, ALL_ON);
+    const { token, playHoleIds } = await roundFor(ctx, courseId, teeId, mine.id);
+    // Two measured holes: a holed 3.5 and a two-putt 1.5.
+    await req(ctx.app, 'POST', '/api/friendly-rounds/stat-events', {
+        token,
+        items: [
+            { playHoleId: playHoleIds[0]!, playerId: mine.id, key: 'first_putt', value: '2_to_4m', clientEventId: 'c-1' },
+            { playHoleId: playHoleIds[0]!, playerId: mine.id, key: 'first_putt_m', value: '3.5', clientEventId: 'c-2' },
+            { playHoleId: playHoleIds[0]!, playerId: mine.id, key: 'putts', value: '1', clientEventId: 'c-3' },
+            { playHoleId: playHoleIds[1]!, playerId: mine.id, key: 'first_putt', value: '1_to_2m', clientEventId: 'c-4' },
+            { playHoleId: playHoleIds[1]!, playerId: mine.id, key: 'first_putt_m', value: '1.5', clientEventId: 'c-5' },
+            { playHoleId: playHoleIds[1]!, playerId: mine.id, key: 'putts', value: '2', clientEventId: 'c-6' },
+        ],
+    });
+
+    const cookie = await loginAs(ctx.app, 'curveowner', 'password123');
+    const res = await req(ctx.app, 'GET', '/api/players/me/stats/first-putt-curve', undefined, cookie);
+    expect(res.status).toBe(200);
+    // The wire rows are the client's FirstPuttCurveRow, field for field,
+    // ascending by metre.
+    expect(await res.json()).toEqual([
+        { firstPuttM: 1.5, attempts: 1, onePutts: 0, puttsTotal: 2 },
+        { firstPuttM: 3.5, attempts: 1, onePutts: 1, puttsTotal: 1 },
+    ]);
+});
+
 test('limit and cursor page the round list; the totals ride on page one only', async () => {
     const { ctx, courseId, teeId } = await setup();
     const player = await register(ctx, 'pager');
@@ -383,6 +414,7 @@ test('the per-round read carries the hole context around each stat line', async 
             gir: true,
             greenMissDir: null,
             firstPutt: null,
+            firstPuttM: null,
             putts: 2,
             shortGameDifficulty: null,
             shortGameStrokes: null,
@@ -597,6 +629,7 @@ test('batch append then read round-trips over the token front door, with no sess
             gir: true,
             greenMissDir: null,
             firstPutt: null,
+            firstPuttM: null,
             putts: 2,
             shortGameDifficulty: null,
             shortGameStrokes: null,
@@ -649,6 +682,7 @@ test('the four capture-v2 keys round-trip through the front door', async () => {
             gir: false,
             greenMissDir: 'long',
             firstPutt: null,
+            firstPuttM: null,
             putts: 1,
             shortGameDifficulty: 'bunker',
             shortGameStrokes: 2,

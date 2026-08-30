@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
     derivedGirState,
+    refineOptions,
     STAT_ORDER,
     StatStep,
     TEE_APPLIES,
@@ -85,10 +86,12 @@ test('prompts come in shot order', () => {
     );
     s.answer('tee_result', 'trouble');
     s.answer('gir', '0');
-    // `penalty_source` hangs off an ANSWERED penalty count, so the maximal card
-    // is only reachable once the penalty question itself has a number.
+    // `penalty_source` hangs off an ANSWERED penalty count, and `first_putt_m`
+    // off a selected fine bucket, so the maximal card is only reachable once
+    // both parents carry an answer.
     s.answer('penalties', '1');
-    // The worst case capture v2 names: eleven inputs on a par 4.
+    s.answer('first_putt', '2_to_4m');
+    // The worst case: twelve inputs on a par 4.
     expect(keys(s)).toEqual([
         'tee_result',
         'tee_miss_dir',
@@ -98,6 +101,7 @@ test('prompts come in shot order', () => {
         'short_game_difficulty',
         'short_game_strokes',
         'first_putt',
+        'first_putt_m',
         'putts',
         'penalties',
         'penalty_source',
@@ -134,12 +138,14 @@ test('recovery is unreachable on a par 3', () => {
 
 // --- Answer-dependent visibility ---
 
-test('short game appears only when GIR is answered miss', () => {
+test('short game appears once GIR is answered either way', () => {
     const s = step(modules({ approach: true, shortGame: true }));
     // An unanswered GIR says nothing about the short game.
     expect(keys(s)).toEqual(['gir']);
+    // A hit keeps the short-game rows too — a par-5 chip on for GIR is a real
+    // chip — just without the miss-direction question.
     s.answer('gir', '1');
-    expect(keys(s)).toEqual(['gir']);
+    expect(keys(s)).toEqual(['gir', 'short_game_difficulty', 'short_game_strokes']);
     s.answer('gir', '0');
     expect(keys(s)).toEqual([
         'gir',
@@ -147,6 +153,36 @@ test('short game appears only when GIR is answered miss', () => {
         'short_game_difficulty',
         'short_game_strokes',
     ]);
+});
+
+// On a green hit in regulation the short-game rows are the exception, so the
+// model tells the view to fold them behind an "Add short game" disclosure until
+// either carries a value. The "tapped open this visit" flag is the view's.
+test('short game on a hit green is collapsed until it has a value', () => {
+    const s = step(modules({ approach: true, shortGame: true }));
+    expect(s.shortGameDisclosure()).toBe('none');
+    s.answer('gir', '0');
+    // A missed green renders the rows normally — no disclosure.
+    expect(s.shortGameDisclosure()).toBe('none');
+    s.answer('gir', '1');
+    expect(s.shortGameDisclosure()).toBe('collapsed');
+    s.answer('short_game_difficulty', 'standard');
+    expect(s.shortGameDisclosure()).toBe('expanded');
+    s.answer('short_game_difficulty', null);
+    expect(s.shortGameDisclosure()).toBe('collapsed');
+    s.step('short_game_strokes', 1);
+    expect(s.shortGameDisclosure()).toBe('expanded');
+});
+
+test('a stored short-game answer on a hit green opens expanded', () => {
+    const s = step(modules({ approach: true, shortGame: true }), {
+        persisted: { gir: '1', short_game_difficulty: 'hard' },
+    });
+    // Legal now: the chip happened, then the green was hit in regulation count.
+    expect(keys(s)).toEqual(['gir', 'short_game_difficulty', 'short_game_strokes']);
+    expect(s.value('short_game_difficulty')).toBe('hard');
+    expect(s.shortGameDisclosure()).toBe('expanded');
+    expect(s.batch).toEqual([]);
 });
 
 test('recovery appears only after trouble', () => {
@@ -159,16 +195,17 @@ test('recovery appears only after trouble', () => {
 });
 
 // Hiding a revealed prompt DISCARDS its answer. A mis-tap that opened the
-// short-game row must not leave its answer behind in the batch.
+// short-game row must not leave its answer behind in the batch. `hit_late` is
+// the answer that rules the chip out: the green attempt finished on the green.
 test('hiding a prompt discards its answer', () => {
     const s = step(modules({ approach: true, shortGame: true }));
     s.answer('gir', '0');
     s.answer('short_game_difficulty', 'hard');
     expect(s.value('short_game_difficulty')).toBe('hard');
 
-    s.answer('gir', '1');
+    s.answer('green_miss_dir', 'hit_late');
     expect(s.value('short_game_difficulty')).toBeNull();
-    expect(s.batch).toEqual([item('gir', '1')]);
+    expect(s.batch).toEqual([item('gir', '0'), item('green_miss_dir', 'hit_late')]);
 });
 
 // Same discard, but the hidden key was already stored server-side: then the
@@ -184,18 +221,22 @@ test('hiding a stored prompt clears it on the server', () => {
         'short_game_strokes',
     ]);
 
-    s.answer('gir', '1');
-    expect(keys(s)).toEqual(['gir']);
-    expect(s.batch).toEqual([item('gir', '1'), item('short_game_difficulty', null)]);
+    s.answer('green_miss_dir', 'hit_late');
+    expect(keys(s)).toEqual(['gir', 'green_miss_dir']);
+    expect(s.batch).toEqual([
+        item('green_miss_dir', 'hit_late'),
+        item('short_game_difficulty', null),
+    ]);
 });
 
 // A step whose stored state is already inconsistent (a short-game answer with
-// GIR hit) cleans itself up on open rather than rendering an impossible row.
+// the green attempt on the green) cleans itself up on open rather than
+// rendering an impossible row.
 test('an impossible stored combination is pruned on open', () => {
     const s = step(modules({ approach: true, shortGame: true }), {
-        persisted: { gir: '1', short_game_difficulty: 'hard' },
+        persisted: { gir: '0', green_miss_dir: 'hit_late', short_game_difficulty: 'hard' },
     });
-    expect(keys(s)).toEqual(['gir']);
+    expect(keys(s)).toEqual(['gir', 'green_miss_dir']);
     expect(s.batch).toEqual([item('short_game_difficulty', null)]);
 });
 
@@ -340,7 +381,58 @@ test('option values match the server vocabulary', () => {
         'short',
         'left',
         'right',
+        'hit_late',
     ]);
+    expect(options('green_miss_dir').map((o) => o.label)).toEqual([
+        'Long',
+        'Short',
+        'Left',
+        'Right',
+        'On green',
+    ]);
+    // The exact-metre refinement: one closed option set per fine bucket, and
+    // the values are the exact TEXT the server stores.
+    expect(refineOptions('first_putt_m', 'inside_1m')?.map((o) => o.value)).toEqual([
+        '0.3',
+        '0.5',
+        '0.8',
+    ]);
+    expect(refineOptions('first_putt_m', '1_to_2m')?.map((o) => o.value)).toEqual([
+        '1',
+        '1.5',
+        '2',
+    ]);
+    expect(refineOptions('first_putt_m', '2_to_4m')?.map((o) => o.value)).toEqual([
+        '2.5',
+        '3',
+        '3.5',
+        '4',
+    ]);
+    expect(refineOptions('first_putt_m', '4_to_8m')?.map((o) => o.value)).toEqual([
+        '5',
+        '6',
+        '7',
+        '8',
+    ]);
+    expect(refineOptions('first_putt_m', 'over_8m')?.map((o) => o.value)).toEqual([
+        '10',
+        '12',
+        '14',
+        '16',
+        '20',
+    ]);
+    expect(refineOptions('first_putt_m', 'over_8m')?.map((o) => o.label)).toEqual([
+        '10m',
+        '12m',
+        '14m',
+        '16m',
+        '20+',
+    ]);
+    // Legacy coarse buckets never offer a refinement.
+    expect(refineOptions('first_putt_m', 'inside_2m')).toBeNull();
+    expect(refineOptions('first_putt_m', '2_to_6m')).toBeNull();
+    expect(refineOptions('first_putt_m', 'over_6m')).toBeNull();
+    expect(refineOptions('first_putt_m', null)).toBeNull();
     expect(options('penalty_source').map((o) => o.value)).toEqual([
         'tee',
         'approach',
@@ -399,8 +491,10 @@ test('visibility names why a prompt is off the card', () => {
     expect(s.visibility('putts')).toBe('unreadable');
     // Trackable, precondition answered the other way ⇒ contradicted.
     s.answer('gir', '1');
-    expect(s.visibility('short_game_difficulty')).toBe('contradicted');
+    expect(s.visibility('green_miss_dir')).toBe('contradicted');
+    expect(s.visibility('short_game_difficulty')).toBe('visible');
     s.answer('gir', '0');
+    expect(s.visibility('green_miss_dir')).toBe('visible');
     expect(s.visibility('short_game_difficulty')).toBe('visible');
 });
 
@@ -475,6 +569,20 @@ test('a stored green_miss_dir is cleared when the green turns out to be hit', ()
     });
     s.answer('gir', '1');
     expect(keys(s)).toEqual(['gir']);
+    expect(s.batch).toEqual([item('gir', '1'), item('green_miss_dir', null)]);
+});
+
+test('a stored short-game answer survives the gir flip to hit', () => {
+    // Since 064 the short game is legal on a hit green, so the flip clears
+    // the miss direction — its claim really is contradicted — and ONLY that:
+    // the chip happened whichever way the green answer settles.
+    const s = step(modules({ approach: true, shortGame: true }), {
+        persisted: { gir: '0', green_miss_dir: 'left', short_game_difficulty: 'standard' },
+    });
+    s.answer('gir', '1');
+    expect(s.value('short_game_difficulty')).toBe('standard');
+    expect(s.visibility('short_game_difficulty')).toBe('visible');
+    expect(s.shortGameDisclosure()).toBe('expanded');
     expect(s.batch).toEqual([item('gir', '1'), item('green_miss_dir', null)]);
 });
 
@@ -582,12 +690,19 @@ test('materialise on close reveals green_miss_dir after a derived miss', () => {
     expect(s.materialiseDerivedGir()).toBe(false);
 });
 
-test('materialise on close contradicts a stored short-game answer after a derived hit', () => {
-    const s = girStep({ strokes: 4, persisted: { short_game_difficulty: 'hard' } });
+test('materialise on close reveals a collapsed short game after a derived hit', () => {
+    // A chip then a green hit in regulation count is a legal combination now,
+    // so a derived hit REVEALS the short-game rows (folded away) instead of
+    // contradicting them.
+    const s = girStep({ strokes: 4 });
     s.answer('putts', '2');
+    expect(s.visibility('short_game_difficulty')).toBe('contradicted');
     expect(s.materialiseDerivedGir()).toBe(true);
     expect(s.value('gir')).toBe('1');
-    expect(s.batch).toContainEqual(item('short_game_difficulty', null));
+    expect(s.visibility('short_game_difficulty')).toBe('visible');
+    expect(s.visibility('short_game_strokes')).toBe('visible');
+    expect(s.shortGameDisclosure()).toBe('collapsed');
+    expect(s.batch).toContainEqual(item('gir', '1'));
 });
 
 // A hole that contradicts itself — no putt taken, but a first-putt distance
@@ -607,4 +722,123 @@ test('a chip-in derives as a miss', () => {
     const s = girStep({ strokes: 3 });
     s.answer('putts', '0');
     expect(derivedGirState(s)).toEqual({ state: 'pending', derived: '0' });
+});
+
+// --- Exact first-putt metres (first_putt_m) ---------------------------------
+//
+// An optional refinement of the bucket: a second chip row whose options are
+// the metres inside the CURRENTLY selected fine bucket. Same three states as
+// every conditional prompt, plus one rule of its own — the answer must stay
+// inside its parent's bucket.
+
+test('first_putt_m appears only once a fine bucket is selected', () => {
+    const s = step(modules({ putting: true }));
+    expect(s.visibility('first_putt_m')).toBe('contradicted');
+    expect(keys(s)).toEqual(['first_putt', 'putts']);
+    s.answer('first_putt', '2_to_4m');
+    expect(s.visibility('first_putt_m')).toBe('visible');
+    expect(keys(s)).toEqual(['first_putt', 'first_putt_m', 'putts']);
+});
+
+// Components render what the model says: the emitted prompt is an ordinary
+// segments row carrying the selected bucket's metres, with no leading label.
+test('the first_putt_m prompt resolves to the selected bucket options', () => {
+    const s = step(modules({ putting: true }));
+    s.answer('first_putt', 'over_8m');
+    const prompt = s.prompts.find((p) => p.key === 'first_putt_m');
+    expect(prompt?.label).toBe('');
+    expect(prompt?.control.kind).toBe('segments');
+    expect(
+        prompt?.control.kind === 'segments' ? prompt.control.options.map((o) => o.value) : [],
+    ).toEqual(['10', '12', '14', '16', '20']);
+});
+
+test('a metre outside the selected bucket is refused', () => {
+    const s = step(modules({ putting: true }));
+    s.answer('first_putt', 'inside_1m');
+    s.answer('first_putt_m', '3');
+    expect(s.value('first_putt_m')).toBeNull();
+    s.answer('first_putt_m', '0.5');
+    expect(s.value('first_putt_m')).toBe('0.5');
+    expect(s.batch).toEqual([item('first_putt', 'inside_1m'), item('first_putt_m', '0.5')]);
+});
+
+test('changing the bucket discards a drafted metre', () => {
+    const s = step(modules({ putting: true }));
+    s.answer('first_putt', '1_to_2m');
+    s.answer('first_putt_m', '1.5');
+    s.answer('first_putt', '4_to_8m');
+    // '1.5' does not belong to 4–8m; it was never stored, so nothing to clear.
+    expect(s.value('first_putt_m')).toBeNull();
+    expect(s.batch).toEqual([item('first_putt', '4_to_8m')]);
+});
+
+test('changing the bucket clears a stored metre on the server', () => {
+    const s = step(modules({ putting: true }), {
+        persisted: { first_putt: '1_to_2m', first_putt_m: '1.5' },
+    });
+    expect(s.value('first_putt_m')).toBe('1.5');
+    s.answer('first_putt', '4_to_8m');
+    expect(s.value('first_putt_m')).toBeNull();
+    expect(s.batch).toEqual([item('first_putt', '4_to_8m'), item('first_putt_m', null)]);
+});
+
+test('clearing the bucket clears a stored metre too', () => {
+    const s = step(modules({ putting: true }), {
+        persisted: { first_putt: '1_to_2m', first_putt_m: '1.5' },
+    });
+    s.answer('first_putt', null);
+    expect(s.visibility('first_putt_m')).toBe('contradicted');
+    expect(s.batch).toEqual([item('first_putt', null), item('first_putt_m', null)]);
+});
+
+// A legacy coarse bucket matches no segment and offers no refinement — the
+// row is off the card, and nothing is cleared because nothing fine was stored.
+test('a legacy coarse bucket hides the metre row without clearing anything', () => {
+    const s = step(modules({ putting: true }), { persisted: { first_putt: 'inside_2m' } });
+    expect(s.visibility('first_putt_m')).toBe('contradicted');
+    expect(keys(s)).toEqual(['first_putt', 'putts']);
+    expect(s.batch).toEqual([]);
+});
+
+// Module off (or the putting row unreadable): the stored metre SURVIVES, like
+// every unreadable key.
+test('a turned-off putting module keeps a stored metre', () => {
+    const s = step(modules({ approach: true }), {
+        persisted: { first_putt: '2_to_4m', first_putt_m: '3' },
+    });
+    expect(s.visibility('first_putt_m')).toBe('unreadable');
+    expect(s.batch).toEqual([]);
+});
+
+test('re-selecting the stored metre sends nothing', () => {
+    const s = step(modules({ putting: true }), {
+        persisted: { first_putt: '2_to_4m', first_putt_m: '3' },
+    });
+    s.answer('first_putt_m', '3.5');
+    expect(s.batch).toEqual([item('first_putt_m', '3.5')]);
+    s.answer('first_putt_m', '3');
+    expect(s.batch).toEqual([]);
+});
+
+// --- The fifth green answer (hit_late) --------------------------------------
+
+test('hit_late contradicts the short game', () => {
+    const s = step(modules({ approach: true, shortGame: true }));
+    s.answer('gir', '0');
+    expect(s.visibility('short_game_difficulty')).toBe('visible');
+    expect(s.visibility('short_game_strokes')).toBe('visible');
+    s.answer('green_miss_dir', 'hit_late');
+    expect(s.visibility('short_game_difficulty')).toBe('contradicted');
+    expect(s.visibility('short_game_strokes')).toBe('contradicted');
+    // A direction miss brings them back.
+    s.answer('green_miss_dir', 'long');
+    expect(s.visibility('short_game_difficulty')).toBe('visible');
+});
+
+test('hit_late never shows a disclosure', () => {
+    const s = step(modules({ approach: true, shortGame: true }));
+    s.answer('gir', '0');
+    s.answer('green_miss_dir', 'hit_late');
+    expect(s.shortGameDisclosure()).toBe('none');
 });

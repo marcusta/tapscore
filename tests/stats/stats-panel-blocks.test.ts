@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import {
+    curveReading,
     panelBlocks,
     panelHeadline,
     priorityCoverage,
@@ -32,6 +33,11 @@ function infoBody(panel: StatsPanelId, model: StatsDashboardModel, cardId: strin
     return c.body;
 }
 
+/** The sheet's card ids, in the order the sheet renders them. */
+function infoCardIds(panel: StatsPanelId, model: StatsDashboardModel): string[] {
+    return panelInfoCards(panel, model, DEFAULT_SG_BASELINE_INFO).map((c) => c.id);
+}
+
 function measures(over: Partial<StatMeasures> = {}): StatMeasures {
     return { ...ZERO_MEASURES, ...over };
 }
@@ -47,6 +53,7 @@ function round(over: Partial<PlayerRoundStats> = {}): PlayerRoundStats {
         name: null,
         holeCount: 18,
         measures: ZERO_MEASURES,
+        girArrivalMetres: [],
         ...over,
     };
 }
@@ -1273,7 +1280,31 @@ const WALK: StatMeasures = measures({
     strokesVsParMissBunker: 2,
 });
 
-const WALK_MODEL = buildDashboardModel([round({ measures: WALK })]);
+// The exact-metre family (migration 064) as an OVERLAY, so the same fixture
+// answers both questions the walk has to answer: what a player who taps metres
+// sees, and what a fully-recorded player who never taps one sees.
+const WALK_METRES: StatMeasures = measures({
+    ...WALK,
+    firstPuttMRecorded: 14,
+    firstPuttMSum: 52,
+    firstPuttMRecordedGir: 5,
+    firstPuttMSumGir: 16,
+    metersMadeSum: 9.5,
+    metersMadeHoles: 5,
+    onePuttsUnmeasured: 1,
+    greenHitLate: 3,
+    chipGirHoles: 3,
+    chipGirOnePutt: 2,
+    chipGirPar5: 2,
+    chipGirPar5OnePutt: 1,
+});
+
+const WALK_CURVE = [
+    { firstPuttM: 1, attempts: 6, onePutts: 5, puttsTotal: 7 },
+    { firstPuttM: 4, attempts: 3, onePutts: 1, puttsTotal: 5 },
+];
+
+const WALK_MODEL = buildDashboardModel([round({ measures: WALK_METRES })], undefined, WALK_CURVE);
 
 /** `kind:id` for every block a panel emits, in order. */
 function walk(id: StatsPanelId): string[] {
@@ -1299,6 +1330,9 @@ test('Off the tee walks: the split, the fan, the three absolutes, the tax, then 
 
 test('Approach walks: where you miss, then greens hit sliced three ways, then the cost', () => {
     expect(walk('approach')).toEqual([
+        'subhead:greensHitHead',
+        'bar:girInRegulation',
+        'bar:greenAttemptsHit',
         'subhead:greenMissHead',
         'compass:greenMiss',
         'subhead:girByTee',
@@ -1310,6 +1344,7 @@ test('Approach walks: where you miss, then greens hit sliced three ways, then th
         'bar:girPar4',
         'bar:girPar5',
         'subhead:mixHead',
+        'figure:proximityOnGir',
         'bar:mix-inside_1m',
         'bar:mix-1_to_2m',
         'bar:mix-2_to_4m',
@@ -1339,6 +1374,11 @@ test('Putting walks: the spread, the ladder under its headers, the distribution,
         'rung:rung-2_to_4m',
         'rung:rung-4_to_8m',
         'rung:rung-over_8m',
+        'subhead:makeCurveHead',
+        'columns:curveCols',
+        'curve:curve-1',
+        'curve:curve-4',
+        'figure:metersMade',
         'subhead:puttCountHead',
         'bar:putts-zero',
         'bar:putts-one',
@@ -1399,7 +1439,37 @@ test('Short game walks: mix, scrambling, the outcome groups, the cost, chipping 
         'figure:chipInsStandard',
         'figure:chipInsHard',
         'figure:chipInsBunker',
+        'subhead:chipOnGirHead',
+        'bar:chipOnGir',
+        'bar:chipOnGirPar5',
     ]);
+});
+
+test('A fully-recorded player who never taps a metre walks the OLD cards, exactly', () => {
+    // Same window, same eighteen holes, every pre-064 field populated — and not
+    // one exact-metre row. The new sections are refinements of cohorts this
+    // player has none of, so their absence is the whole point: no empty
+    // "Average first putt", no 0 m holed, no curve headed over nothing.
+    const plain = buildDashboardModel([round({ measures: WALK })]);
+    const plainWalk = (id: StatsPanelId): string[] =>
+        panelBlocks(id, plain).map((b) => `${b.kind}:${b.id}`);
+    const added = [
+        'subhead:greensHitHead',
+        'bar:girInRegulation',
+        'bar:greenAttemptsHit',
+        'figure:proximityOnGir',
+        'subhead:makeCurveHead',
+        'columns:curveCols',
+        'curve:curve-1',
+        'curve:curve-4',
+        'figure:metersMade',
+        'subhead:chipOnGirHead',
+        'bar:chipOnGir',
+        'bar:chipOnGirPar5',
+    ];
+    for (const id of ['approach', 'putting', 'shortGame'] as const) {
+        expect(plainWalk(id)).toEqual(walk(id).filter((b) => !added.includes(b)));
+    }
 });
 
 test('Scoring walks: the three par averages, doubles, where they come from, bounce-back', () => {
@@ -1520,4 +1590,223 @@ test('the walk covers every panel, so no card can be silently dropped from it', 
     // the new card.
     for (const id of STATS_PANEL_IDS) expect(walk(id).length).toBeGreaterThan(0);
     expect(STATS_PANEL_IDS).toHaveLength(5);
+});
+
+// --- The exact-metre family (migration 064) ---------------------------------
+//
+// Every one of these figures comes from an OPTIONAL second tap, so each has to
+// disappear whole when the tap was never taken — never draw as a zero, and
+// never make the card around it look empty.
+
+test('the exact average sits above the bands it refines, on the refinement cohort', () => {
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                girRecorded: 10,
+                girHits: 6,
+                girFirstPuttInside1m: 1,
+                girFirstPutt1To2m: 2,
+                girFirstPutt2To4m: 3,
+                firstPuttMRecordedGir: 4,
+                firstPuttMSumGir: 18,
+            }),
+        }),
+    ]);
+    const ids = panelBlocks('approach', model).map((b) => b.id);
+    // Directly under the section head, before the first band.
+    expect(ids.indexOf('proximityOnGir')).toBe(ids.indexOf('mixHead') + 1);
+    expect(ids.indexOf('proximityOnGir')).toBeLessThan(ids.indexOf('mix-inside_1m'));
+    const fig = panelBlocks('approach', model).find((b) => b.id === 'proximityOnGir')!;
+    expect(fig.kind === 'figure' && fig.value).toBe('4.5 m');
+    // The sheet states the REFINEMENT's own denominator, which is smaller than
+    // the six greens the bands below cover. The two differing is the point.
+    expect(infoBody('approach', model, 'proximityOnGir')).toContain(
+        '4 greens hit with the metres recorded',
+    );
+});
+
+test('no metre tapped, no exact average — the bands stay, and say nothing about it', () => {
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                girRecorded: 10,
+                girHits: 6,
+                girFirstPuttInside1m: 2,
+                girFirstPutt2To4m: 4,
+            }),
+        }),
+    ]);
+    const ids = panelBlocks('approach', model).map((b) => b.id);
+    expect(ids).not.toContain('proximityOnGir');
+    expect(ids).toContain('mix-inside_1m');
+    expect(panelInfoCards('approach', model, DEFAULT_SG_BASELINE_INFO).map((c) => c.id)).not.toContain(
+        'proximityOnGir',
+    );
+});
+
+test('greens hit reads as a pair — in regulation, then including the late ones', () => {
+    const model = buildDashboardModel([
+        round({ measures: measures({ girRecorded: 10, girHits: 4, greenHitLate: 3 }) }),
+    ]);
+    const blocks = panelBlocks('approach', model);
+    expect(blocks.slice(0, 3).map((b) => `${b.kind}:${b.id}`)).toEqual([
+        'subhead:greensHitHead',
+        'bar:girInRegulation',
+        'bar:greenAttemptsHit',
+    ]);
+    const late = blocks.find((b) => b.id === 'greenAttemptsHit')!;
+    // 4 + 3 over the same ten holes the GIR row uses.
+    expect(late.kind === 'bar' && late.value).toBe('70%');
+    expect(infoBody('approach', model, 'greenAttemptsHit')).toContain('over 10 holes');
+});
+
+test('with no green hit late the pair is absent — the GIR headline already says it', () => {
+    const model = buildDashboardModel([
+        round({ measures: measures({ girRecorded: 10, girHits: 4 }) }),
+    ]);
+    const ids = panelBlocks('approach', model).map((b) => b.id);
+    expect(ids).not.toContain('greensHitHead');
+    expect(ids).not.toContain('greenAttemptsHit');
+});
+
+test('the make curve is sparse: only the metres actually putted from get a row', () => {
+    const model = buildDashboardModel(
+        [round({ measures: measures({ firstPuttRecorded: 9, puttsRecorded: 9 }) })],
+        undefined,
+        [
+            { firstPuttM: 2, attempts: 4, onePutts: 3, puttsTotal: 5 },
+            { firstPuttM: 9, attempts: 2, onePutts: 0, puttsTotal: 5 },
+        ],
+    );
+    const blocks = panelBlocks('putting', model);
+    const ids = blocks.map((b) => `${b.kind}:${b.id}`);
+    // Two rows for two metres. Nothing invents a 1 m, a 3 m or an 8 m row: a
+    // metre with no attempt is one the player has never recorded, and a 0% row
+    // there would be a claim about the player.
+    expect(ids).toContain('subhead:makeCurveHead');
+    expect(ids).toContain('columns:curveCols');
+    expect(ids.filter((id) => id.startsWith('curve:'))).toEqual(['curve:curve-2', 'curve:curve-9']);
+    const near = blocks.find((b) => b.id === 'curve-2')!;
+    expect(near.kind === 'curve' && near.value).toBe('75%');
+    expect(near.kind === 'curve' && near.avg).toBe('1.25');
+    // The row carries its own sample where the eye can see it, not only in the
+    // aria string: 75% of 4 and 0% of 2 are not the same kind of number, and
+    // this column's denominators differ by an order of magnitude down the page.
+    expect(near.kind === 'curve' && near.title).toBe('2 m, 4 putts');
+    const far = blocks.find((b) => b.id === 'curve-9')!;
+    expect(far.kind === 'curve' && far.title).toBe('9 m, 2 putts');
+    expect(curveReading({ title: '2 m, 4 putts', value: '75%', avg: '1.25' })).toBe(
+        '2 m, 4 putts, 75% holed, 1.25 putts on average',
+    );
+    // The sample the sheet quotes is the attempts behind the points, and it
+    // says out loud that the curve ignores the window above it.
+    expect(infoBody('putting', model, 'makeCurve')).toContain('over 6 first putts');
+    expect(infoBody('putting', model, 'makeCurve')).toContain('whole recorded history');
+});
+
+test('no curve rows, no curve section — the band ladder above it is untouched', () => {
+    const model = buildDashboardModel([
+        round({ measures: measures({ firstPuttRecorded: 9, puttsRecorded: 9 }) }),
+    ]);
+    const ids = panelBlocks('putting', model).map((b) => b.id);
+    expect(ids).not.toContain('makeCurveHead');
+    expect(ids.filter((id) => id.startsWith('curve-'))).toEqual([]);
+    expect(ids).toContain('ladderHead');
+});
+
+test('metres holed is a sum with its coverage stated as holes, never as an exclusion', () => {
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                firstPuttRecorded: 9,
+                metersMadeSum: 12.5,
+                metersMadeHoles: 5,
+                onePuttsUnmeasured: 2,
+            }),
+        }),
+    ]);
+    const fig = panelBlocks('putting', model).find((b) => b.id === 'metersMade')!;
+    expect(fig.kind === 'figure' && fig.value).toBe('12.5 m');
+    const sheet = infoBody('putting', model, 'metersMade');
+    expect(sheet).toContain('over 5 one-putt holes counted');
+    // The two unmeasured one-putts are named as coverage. They are not dropped
+    // rounds and the sentence must not read as if they were.
+    expect(sheet).toContain('2 holes you one-putted have no distance recorded');
+});
+
+test('metres holed disappears with no measured one-putt — never a confident 0 m', () => {
+    const model = buildDashboardModel([
+        round({ measures: measures({ firstPuttRecorded: 9, onePuttsUnmeasured: 3 }) }),
+    ]);
+    expect(panelBlocks('putting', model).map((b) => b.id)).not.toContain('metersMade');
+});
+
+test('the chip on a green in regulation closes the short-game card, par 5 under it', () => {
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                scrambleAttemptsStandard: 4,
+                scrambleSuccessesStandard: 2,
+                chipGirHoles: 6,
+                chipGirOnePutt: 3,
+                chipGirPar5: 4,
+                chipGirPar5OnePutt: 1,
+            }),
+        }),
+    ]);
+    const blocks = panelBlocks('shortGame', model);
+    expect(blocks.slice(-3).map((b) => `${b.kind}:${b.id}`)).toEqual([
+        'subhead:chipOnGirHead',
+        'bar:chipOnGir',
+        'bar:chipOnGirPar5',
+    ]);
+    const up = blocks.find((b) => b.id === 'chipOnGir')!;
+    expect(up.kind === 'bar' && up.value).toBe('50%');
+    expect(infoBody('shortGame', model, 'chipOnGir')).toContain('over 6 greens hit where you chipped and finished the hole');
+});
+
+test('a chip on a green in regulation opens the short-game card on its own', () => {
+    // No missed green anywhere in the window, so no scramble attempt — and the
+    // one recorded short-game cohort the player HAS must not be reported as an
+    // absence. iOS already shows the card here; the card is the chip section
+    // alone, because every other section is about a missed green.
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                chipGirHoles: 4,
+                chipGirOnePutt: 2,
+            }),
+        }),
+    ]);
+    const blocks = panelBlocks('shortGame', model);
+    expect(blocks.map((b) => `${b.kind}:${b.id}`)).toEqual([
+        'subhead:chipOnGirHead',
+        'bar:chipOnGir',
+    ]);
+    expect(infoCardIds('shortGame', model)).toEqual(['chipOnGir']);
+});
+
+test('the par-5 row rides its own gate, and the section rides the whole cohort', () => {
+    const noPar5 = buildDashboardModel([
+        round({
+            measures: measures({
+                scrambleAttemptsStandard: 4,
+                chipGirHoles: 6,
+                chipGirOnePutt: 3,
+            }),
+        }),
+    ]);
+    const ids = panelBlocks('shortGame', noPar5).map((b) => b.id);
+    expect(ids).toContain('chipOnGir');
+    expect(ids).not.toContain('chipOnGirPar5');
+
+    const noChip = buildDashboardModel([
+        round({ measures: measures({ scrambleAttemptsStandard: 4 }) }),
+    ]);
+    const bare = panelBlocks('shortGame', noChip).map((b) => b.id);
+    expect(bare).not.toContain('chipOnGirHead');
+    expect(bare).not.toContain('chipOnGir');
+    expect(panelInfoCards('shortGame', noChip, DEFAULT_SG_BASELINE_INFO).map((c) => c.id)).not.toContain(
+        'chipOnGir',
+    );
 });

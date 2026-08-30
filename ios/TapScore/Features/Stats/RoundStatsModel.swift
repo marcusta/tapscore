@@ -165,8 +165,14 @@ struct RoundStatsModel: Equatable, Sendable {
         let panels = StatsDashboardModel.build(rows: [round], baseline: baseline)
         let waterfall = panels.waterfall
         let window = priorRounds(of: round, in: history, limit: windowSize)
+        // Each baseline round is priced with ITS OWN arrival metres, exactly as
+        // the dashboard prices a round. Without them the refined round would be
+        // compared against an unrefined window and the refinement itself would
+        // read as form.
         let windowLosts = window.map {
-            StatMeasuresMath.strokesLostV3($0.measures, baseline: baseline)
+            StatMeasuresMath.strokesLostV3(
+                $0.measures, baseline: baseline,
+                girArrivalMetres: StatsDashboardModel.arrivalCells([$0]))
         }
         let row = panels.rounds.first
         return RoundStatsModel(

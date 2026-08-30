@@ -21,7 +21,7 @@ const StatsConfigInput = Type.Object({
     recovery: Type.Boolean(),
 });
 
-// The eleven keys of `StatKey`, in the schema order. This union is the WIRE
+// The twelve keys of `StatKey`, in the schema order. This union is the WIRE
 // gate: a key missing here is rejected before the service's vocabulary ever
 // sees it, so it has to grow whenever `MODULE_FOR_KEY` does.
 const StatKeySchema = Type.Union([
@@ -30,6 +30,7 @@ const StatKeySchema = Type.Union([
     Type.Literal('gir'),
     Type.Literal('green_miss_dir'),
     Type.Literal('first_putt'),
+    Type.Literal('first_putt_m'),
     Type.Literal('putts'),
     Type.Literal('short_game_difficulty'),
     Type.Literal('short_game_strokes'),
@@ -41,7 +42,8 @@ const StatKeySchema = Type.Union([
 /**
  * `value` is TEXT for every key — enum text, `'0'`/`'1'` for the two booleans,
  * `'0'`..`'3'` for putts, `'1'`..`'5'` for short-game strokes, decimal digits
- * for penalties. One column serves eleven keys in `stat_events`; the projection
+ * for penalties, decimal metre text ('3.5', '20') for `first_putt_m`. One
+ * column serves twelve keys in `stat_events`; the projection
  * does the typing. `null` CLEARS the key (spec §4.1), which is not the same as
  * omitting the item.
  */
@@ -169,6 +171,15 @@ export function createPlayerStatsApi(svc: PlayerStatsService, rounds: FriendlyRo
             fn: (input: Static<typeof MyStatsInput>, c: Context) =>
                 svc.summaryForPlayer(requireUser(c).id, input),
             schema: MyStatsInput,
+            middleware: mw,
+        },
+        // The exact-metres make curve, whole history — same self-only posture
+        // as `myStats`: the subject comes from the session, never from the
+        // URL. Row shape is the client's `FirstPuttCurveRow` field-for-field.
+        myFirstPuttCurve: {
+            method: 'GET' as const,
+            path: '/players/me/stats/first-putt-curve',
+            fn: (c: Context) => svc.firstPuttCurveForPlayer(requireUser(c).id),
             middleware: mw,
         },
         // Same self-only rule one level down: the round is named in the path,

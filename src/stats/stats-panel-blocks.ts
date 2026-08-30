@@ -27,6 +27,7 @@ import {
     type DoubleCause,
     type DoubleCauseGroupId,
     type DoubleCauseSubId,
+    type FirstPuttCurvePoint,
     type Rate,
     type ResultsSummary,
     type ScoreType,
@@ -44,12 +45,16 @@ import {
     formatAverage,
     formatCost,
     formatCount,
+    formatMeters,
+    formatMetersTotal,
+    metersTitle,
     NO_VALUE,
     quantity,
     formatRate,
     signedNumber,
     UNIT_HOLES,
     UNIT_LABELLED_PENALTY_HOLES,
+    UNIT_PUTTS,
     UNIT_ROUNDS,
     vsPar as vsParScore,
 } from './stats-format';
@@ -104,6 +109,21 @@ export type StatsBlock =
           baseline: number;
           value: string | null;
           cost: string;
+      }
+    /**
+     * One point of the make curve: a metre, its make share, and the average
+     * putts from there. The rung's shape without the rung's baseline tick —
+     * there is no reference make rate at an exact metre. `title` carries the
+     * row's own sample, which no other row needs.
+     */
+    | {
+          kind: 'curve';
+          id: string;
+          title: string;
+          share: number | null;
+          value: string | null;
+          avg: string;
+          attempts: number;
       }
     /** Right-aligned column headers, over the fixed value columns below them. */
     | { kind: 'columns'; id: string; cells: string[] }
@@ -183,6 +203,23 @@ export const STATS_COPY = {
     noValue: NO_VALUE,
     proximityProxy:
         'How far the first putt was on greens you hit — a stand-in for approach proximity, which the app does not measure directly.',
+    // The exact-metre family (migration 064). Each sentence names the REFINEMENT
+    // cohort it is drawn from, because none of them share the panel's own
+    // denominator: a player can record every hole and never tap a metre.
+    proximityOnGir:
+        'The average distance of the first putt on greens you hit, from the metres you tapped in. Only greens with a metre recorded count.',
+    greenAttemptsHit:
+        'Greens hit at any point, including the ones you reached after regulation. Read against the row above it: regulation is ball-striking, this is position.',
+    metersMade:
+        'The metres of first putt you holed, added up. A one-putt from inside 1 m carries no distance, so it counts at a flat half metre.',
+    makeCurve:
+        'How often the first putt went in from each distance you have recorded, with the average putts from there beside it, and the putts each row counts. Only distances you have actually putted from appear. A distance with no row is one you have never recorded, not one you never hole.',
+    makeCurveWindow:
+        'This is your whole recorded history, not the window above. A window of a few rounds holds too few putts from any one distance to read.',
+    chipOnGir:
+        'Greens you hit where you still played a short-game shot, such as the greenside chip on a par 5 that made regulation. Up and in counts the hole where one putt, or the chip itself, finished it.',
+    chipOnGirPar5:
+        'The par-5 half of the same holes: greenside in two, chipped, and the putt for birdie went in.',
     birdieConversion: 'Greens hit that became a birdie or better.',
     ladderBaseline:
         'The tick is the make rate your reference expects from that distance. For the two longest bands it sits at zero: the reference expects two putts from there, so any make is ahead of it.',
@@ -299,6 +336,44 @@ export function rungReading(rung: { title: string; value: string | null; cost: s
     if (rung.cost.startsWith('+')) return `${rung.title}, ${made}, ${magnitude} strokes lost`;
     if (rung.cost.startsWith('\u2212')) return `${rung.title}, ${made}, ${magnitude} strokes gained`;
     return `${rung.title}, ${made}, level`;
+}
+
+/** The curve's own column headers. Same geometry as the ladder, no baseline. */
+export const CURVE_COLUMNS: readonly [string, string] = ['Holed', 'Putts'];
+
+/**
+ * A curve point read out in WORDS. The title already carries the row's own
+ * sample, so the reading says exactly what the row shows.
+ */
+export function curveReading(point: {
+    title: string;
+    value: string | null;
+    avg: string;
+}): string {
+    const made = point.value === null ? STATS_COPY.notRecorded : `${point.value} holed`;
+    return `${point.title}, ${made}, ${point.avg} putts on average`;
+}
+
+/**
+ * One point of the curve as a row. `avg` is never absent: a point HAS attempts.
+ *
+ * The title carries the row's sample, which no other row on this screen does:
+ * the curve's denominators differ wildly down the column (forty putts from 1 m,
+ * three from 12 m), so a bare 33% here would read as the same kind of number in
+ * both places. One sheet sentence cannot state nineteen denominators, and the
+ * value columns are fixed-width, so the sample rides in the title cell.
+ */
+function curveBlock(point: FirstPuttCurvePoint): StatsBlock {
+    const made = rate(point.onePutts, point.attempts);
+    return {
+        kind: 'curve',
+        id: `curve-${point.meters}`,
+        title: `${metersTitle(point.meters)}, ${quantity(point.attempts, UNIT_PUTTS)}`,
+        share: made.value,
+        value: formatRate(made),
+        avg: formatAverage(point.avgPutts, 2) ?? STATS_COPY.noValue,
+        attempts: point.attempts,
+    };
 }
 
 /**
@@ -572,6 +647,18 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
             const p = model.approach;
             if (!p) return [];
             return [
+                // Regulation and any-time in one pair (migration 064). Two rows,
+                // because they answer different questions off the same holes:
+                // regulation is ball-striking, "including over regulation" is
+                // position. Gated on the late-green count, which is the only
+                // thing that makes the second row differ from the first.
+                ...(p.greenHitLate > 0
+                    ? [
+                          { kind: 'subhead' as const, id: 'greensHitHead', text: 'Greens hit' },
+                          bar('girInRegulation', 'In regulation', p.gir),
+                          bar('greenAttemptsHit', 'Including over regulation', p.greenAttemptsHit),
+                      ]
+                    : []),
                 // Directly under the card's own GIR headline, and above every
                 // breakdown: the compass says WHERE the misses went, which is
                 // the question the breakdowns below then slice. Absent when no
@@ -602,6 +689,12 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 // the two subheads above this one already teach, and spelling it
                 // out here would read as a different measurement.
                 { kind: 'subhead', id: 'mixHead', text: 'Proximity with GIR' },
+                // The exact average, ahead of the bands it summarises: a metre
+                // is the finer measurement, and the bands stay as its shape.
+                // Absent when no green hit carries a metre.
+                ...(p.proximityOnGir.d > 0
+                    ? [figure('proximityOnGir', 'Average first putt', formatMeters(p.proximityOnGir))]
+                    : []),
                 ...PUTT_BUCKETS.map((b) => bar(`mix-${b}`, bucketTitle(b), p.girFirstPuttMix[b])),
                 bar('birdieConversion', 'Birdie conversion', p.birdieConversion),
                 // The approach panel is gated on `girRecorded`, which can be
@@ -667,6 +760,29 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                         cost: formatCost(rung.cost),
                     }),
                 ),
+                // The exact-metre curve under the bands it refines (migration
+                // 064). Career-wide, not windowed — the sheet says so — because
+                // a window holds too few putts from any one metre to read.
+                // Sparse BY DESIGN: only metres you have putted from get a row,
+                // and a missing metre is coverage, never a zero.
+                ...(p.curve.length > 0
+                    ? [
+                          { kind: 'subhead' as const, id: 'makeCurveHead', text: 'Holed, by distance' },
+                          { kind: 'columns' as const, id: 'curveCols', cells: [...CURVE_COLUMNS] },
+                          ...p.curve.map(curveBlock),
+                      ]
+                    : []),
+                // Its own cohort's figure, not the panel's: the holes that
+                // carry a metre are a subset of the holes that carry a putt.
+                ...(p.metersMadeHoles > 0
+                    ? [
+                          figure(
+                              'metersMade',
+                              'Metres of first putts holed',
+                              formatMetersTotal(p.metersMade),
+                          ),
+                      ]
+                    : []),
                 // One gate for the group: all four share `puttsRecorded`, so
                 // checking `zero.d` IS checking it. The panel can be present on
                 // `firstPuttRecorded` alone, with no putt count anywhere.
@@ -741,7 +857,14 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               : []),
                       ]
                     : [];
-            return [
+            // Every section from the mix down to the chip-ins is about a MISSED
+            // green, so all of it rides one gate: the card can now exist on the
+            // chip-on-GIR cohort alone (a green hit, chipped anyway), and a
+            // scrambling section over zero attempts would be a screenful of
+            // empty rows about a situation the window never held.
+            const missAttempts =
+                p.scramble.standard.d + p.scramble.hard.d + p.scrambleAttemptsBunker;
+            const missBlocks: StatsBlock[] = [
                 // The mix first: what kind of trouble the approaches left, the
                 // context every difficulty-split figure below is read against.
                 // Bunker rides its usual gate; the other two always draw.
@@ -847,6 +970,26 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 figure('chipInsHard', 'Hard', formatCount(p.chipIns.hard)),
                 ...(p.scrambleAttemptsBunker > 0
                     ? [figure('chipInsBunker', 'Bunker', formatCount(p.chipIns.bunker))]
+                    : []),
+            ];
+            return [
+                ...(missAttempts > 0 ? missBlocks : []),
+                // The chip that did NOT follow a miss (migration 064): the
+                // greenside pitch on a par 5 that still made regulation. Its own
+                // cohort, its own gate, and the par-5 birdie row inside it has a
+                // narrower cohort again.
+                ...(p.chipOnGir.d > 0
+                    ? [
+                          {
+                              kind: 'subhead' as const,
+                              id: 'chipOnGirHead',
+                              text: 'Chipped on a green in regulation',
+                          },
+                          bar('chipOnGir', 'Up and in', p.chipOnGir),
+                          ...(p.chipOnGirPar5Birdie.d > 0
+                              ? [bar('chipOnGirPar5', 'Par 5, for birdie', p.chipOnGirPar5Birdie)]
+                              : []),
+                      ]
                     : []),
             ];
         }

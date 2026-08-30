@@ -139,9 +139,10 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
         --
         -- "Recorded" still has to be checked column by column rather than "a
         -- projection row exists": clearing every answer on a hole leaves the
-        -- row behind with all ELEVEN capture columns NULL (migration 042 keeps
+        -- row behind with all TWELVE capture columns NULL (migration 042 keeps
         -- it so the event log's clears stay projectable). EVERY capture column
-        -- has to be listed here — migration 055 added four, and a round whose
+        -- has to be listed here — migration 055 added four and 064 a twelfth,
+        -- and a round whose
         -- only answers were new-key answers would otherwise fall out of the
         -- view entirely. Such a row alone no longer
         -- readmits the round — but a SCORE now does, which is the intended
@@ -154,6 +155,7 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                OR gir IS NOT NULL
                OR green_miss_dir IS NOT NULL
                OR first_putt IS NOT NULL
+               OR first_putt_m IS NOT NULL
                OR putts IS NOT NULL
                OR short_game_difficulty IS NOT NULL
                OR short_game_strokes IS NOT NULL
@@ -215,16 +217,38 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                    phs.gir AS gir,
                    phs.green_miss_dir AS green_miss_dir,
                    phs.first_putt AS first_putt,
+                   -- Exact first-putt metres (migration 064). REAL; NULL on
+                   -- every hole before 064 and on any hole where the player
+                   -- stopped at the bucket.
+                   phs.first_putt_m AS first_putt_m,
                    phs.putts AS putts,
-                   phs.short_game_difficulty AS short_game_difficulty,
+                   -- HIT_LATE HIDES THE SHORT GAME (migration 064).
+                   -- green_miss_dir = 'hit_late' asserts the first green
+                   -- attempt HIT the green — no chip happened — so a recorded
+                   -- difficulty or stroke count alongside it is the same kind
+                   -- of cross-device contradiction the dispersion guards
+                   -- defend against (see the CAPTURE V2 block below), and it
+                   -- is nulled HERE so every short-game cohort downstream —
+                   -- scramble, counters, outcomes, cost-of-miss — excludes the
+                   -- hole in one place. Without this, COALESCE(C, 1) would
+                   -- charge a chip that never happened. The 'attributable' and
+                   -- 'dbl_cause' CASEs read phs.* directly (a SELECT list
+                   -- cannot see its own aliases) and carry the guard inline.
+                   CASE WHEN phs.green_miss_dir = 'hit_late' THEN NULL
+                        ELSE phs.short_game_difficulty END AS short_game_difficulty,
                    phs.penalties AS penalties,
                    phs.penalty_source AS penalty_source,
                    phs.recovery_ok AS recovery_ok,
                    -- Written by capture from migration 055; NULL on every hole
                    -- before that, and on any hole where the stepper was never
-                   -- touched. Read through COALESCE(…, 1) everywhere, so an
-                   -- uncounted hole models exactly one short-game stroke.
-                   phs.short_game_strokes AS short_game_strokes,
+                   -- touched. Read through COALESCE(…, 1) by the MISSED-GREEN
+                   -- cohorts, so an uncounted missed green models exactly one
+                   -- short-game stroke. That default is only sound where a
+                   -- chip is certain: on gir = 1 holes (the chip_gir_* family)
+                   -- an unrecorded count means NO chip, and on hit_late holes
+                   -- it is nulled with the difficulty above.
+                   CASE WHEN phs.green_miss_dir = 'hit_late' THEN NULL
+                        ELSE phs.short_game_strokes END AS short_game_strokes,
                    hs.strokes AS strokes,
                    -- Rule 3. 0 = the putting answers contradict each other and
                    -- are treated as unrecorded.
@@ -251,7 +275,7 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                    -- and the branch's exact vocabulary. Postel: unknown or
                    -- missing vocabulary drops the hole, it is never guessed.
                    --
-                   -- The four accepted branches:
+                   -- The five accepted branches:
                    --   GIR, non-holed  — a FINE first-putt bucket (the legacy
                    --     coarse ones cannot price the five-state putting table)
                    --     plus a putt count.
@@ -259,6 +283,13 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                    --     and no bucket. Coherent, and the branch's BEST outcome;
                    --     excluding it would bias approach by dropping exactly
                    --     its triumphs.
+                   --   HIT LATE        — gir = 0 but the green attempt HIT the
+                   --     green over regulation (migration 064): no chip, so no
+                   --     difficulty to require — a fine bucket plus a putt
+                   --     count is complete coverage. Priced like the GIR
+                   --     branch (an arrival bucket, zero short-game strokes);
+                   --     the extra stroke to the green lands in the approach
+                   --     residual, which is exactly what it cost.
                    --   MISS, non-holed — a difficulty, a putt count, and a
                    --     bucket in EITHER vocabulary: the coarse buckets map
                    --     cleanly onto inside/outside 2 m, which is all the chip
@@ -282,13 +313,30 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                                                                '2_to_4m', '4_to_8m',
                                                                'over_8m'))
                         OR (phs.gir = 1 AND phs.putts = 0 AND phs.first_putt IS NULL)
+                        -- The HIT-LATE branch (migration 064): on the green
+                        -- with a bucket and a putt count, no chip to require.
+                        OR (phs.gir = 0 AND phs.green_miss_dir = 'hit_late'
+                                        AND phs.putts IS NOT NULL
+                                        AND phs.first_putt IN ('inside_1m', '1_to_2m',
+                                                               '2_to_4m', '4_to_8m',
+                                                               'over_8m'))
+                        -- The MISS branches exclude hit_late (migration 064):
+                        -- no chip happened, so the miss pricing's chip-entry
+                        -- term has nothing to charge and the hole cannot join
+                        -- the MISS cohort even when a stale difficulty
+                        -- survives — it joins through the hit-late branch
+                        -- above instead.
                         OR (phs.gir = 0 AND phs.short_game_difficulty IS NOT NULL
+                                        AND (phs.green_miss_dir IS NULL
+                                             OR phs.green_miss_dir <> 'hit_late')
                                         AND phs.putts IS NOT NULL
                                         AND phs.first_putt IN ('inside_1m', '1_to_2m',
                                                                '2_to_4m', '4_to_8m',
                                                                'over_8m', 'inside_2m',
                                                                '2_to_6m', 'over_6m'))
                         OR (phs.gir = 0 AND phs.short_game_difficulty IS NOT NULL
+                                        AND (phs.green_miss_dir IS NULL
+                                             OR phs.green_miss_dir <> 'hit_late')
                                         AND phs.putts = 0 AND phs.first_putt IS NULL)
                      )
                    THEN 1 ELSE 0 END AS attributable,
@@ -321,7 +369,15 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                        WHEN hs.strokes IS NULL OR hs.strokes < rph.par + 2 THEN NULL
                        WHEN COALESCE(phs.penalties, 0) >= 1 THEN 'penalty'
                        WHEN phs.recovery_ok = 0 THEN 'failed_recovery'
+                       -- hit_late guard (migration 064): no chip happened on a
+                       -- hit_late hole, so a stale stroke count cannot make it
+                       -- a multi-chip double — and its absence of a difficulty
+                       -- is COMPLETE coverage, not a gap, so the hole can
+                       -- reach 'full_swing' (three to the green then two putts
+                       -- IS the full swing's double).
                        WHEN phs.gir = 0 AND COALESCE(phs.short_game_strokes, 1) > 1
+                        AND (phs.green_miss_dir IS NULL
+                             OR phs.green_miss_dir <> 'hit_late')
                             THEN 'multi_chip'
                        WHEN NOT (phs.putts = 0 AND phs.first_putt IS NOT NULL)
                         AND phs.putts >= 3 THEN 'three_putt'
@@ -330,7 +386,8 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                         AND NOT (phs.putts = 0 AND phs.first_putt IS NOT NULL)
                         AND phs.putts IS NOT NULL
                         AND (rph.par <= 3 OR phs.tee_result IS NOT NULL)
-                        AND (phs.gir = 1 OR phs.short_game_difficulty IS NOT NULL)
+                        AND (phs.gir = 1 OR phs.short_game_difficulty IS NOT NULL
+                             OR phs.green_miss_dir = 'hit_late')
                             THEN 'full_swing'
                        ELSE 'unattributed'
                    END AS dbl_cause
@@ -626,14 +683,25 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             -- (src/round/stat-measures.ts / StatMeasuresMath.swift), never
             -- here.
 
-            -- Cohort counts. These four PARTITION the cohort.
-            COUNT(CASE WHEN attributable = 1 AND par_group = 3 AND gir = 1
+            -- Cohort counts. These four PARTITION the cohort. The split is
+            -- ON-GREEN vs MISSED-AND-CHIPPED, not the raw gir bit: a hit_late
+            -- hole (migration 064) reached the green with a bucket and putts,
+            -- so it prices exactly like the GIR branch and sits on the _gir
+            -- side, keeping the miss side co-extensive with the difficulty
+            -- counts below.
+            COUNT(CASE WHEN attributable = 1 AND par_group = 3
+                        AND (gir = 1 OR green_miss_dir = 'hit_late')
                        THEN 1 END) AS att_holes_par3_gir,
             COUNT(CASE WHEN attributable = 1 AND par_group = 3 AND gir = 0
+                        AND (green_miss_dir IS NULL
+                             OR green_miss_dir <> 'hit_late')
                        THEN 1 END) AS att_holes_par3_miss,
-            COUNT(CASE WHEN attributable = 1 AND par_group IN (4, 5) AND gir = 1
+            COUNT(CASE WHEN attributable = 1 AND par_group IN (4, 5)
+                        AND (gir = 1 OR green_miss_dir = 'hit_late')
                        THEN 1 END) AS att_holes_par45_gir,
             COUNT(CASE WHEN attributable = 1 AND par_group IN (4, 5) AND gir = 0
+                        AND (green_miss_dir IS NULL
+                             OR green_miss_dir <> 'hit_late')
                        THEN 1 END) AS att_holes_par45_miss,
 
             -- Cohort sums. strokes is the canonicalised value from
@@ -665,19 +733,33 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             COUNT(CASE WHEN attributable = 1 AND par_group = 5 AND tee_result = 'trouble'
                        THEN 1 END) AS att_trouble_par5,
 
-            -- GIR arrival states: where the approach left the ball. The five
-            -- buckets plus att_gir_holed PARTITION the GIR cohort — the
-            -- holed approach (and the ace) has no bucket because the ball is
-            -- in, and its arrival value is zero expected putts.
-            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = 'inside_1m'
+            -- On-green arrival states: where the ball first sat on the green.
+            -- The five buckets plus att_gir_holed PARTITION the on-green
+            -- cohort (att_holes_*_gir) — the holed approach (and the ace) has
+            -- no bucket because the ball is in, and its arrival value is zero
+            -- expected putts. hit_late holes (migration 064) are in here with
+            -- their bucket: their arrival is a putt like any other, only the
+            -- strokes that bought it differ, and those live in the approach
+            -- residual.
+            COUNT(CASE WHEN attributable = 1
+                        AND (gir = 1 OR green_miss_dir = 'hit_late')
+                        AND first_putt = 'inside_1m'
                        THEN 1 END) AS att_gir_first_putt_inside_1m,
-            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = '1_to_2m'
+            COUNT(CASE WHEN attributable = 1
+                        AND (gir = 1 OR green_miss_dir = 'hit_late')
+                        AND first_putt = '1_to_2m'
                        THEN 1 END) AS att_gir_first_putt_1_to_2m,
-            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = '2_to_4m'
+            COUNT(CASE WHEN attributable = 1
+                        AND (gir = 1 OR green_miss_dir = 'hit_late')
+                        AND first_putt = '2_to_4m'
                        THEN 1 END) AS att_gir_first_putt_2_to_4m,
-            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = '4_to_8m'
+            COUNT(CASE WHEN attributable = 1
+                        AND (gir = 1 OR green_miss_dir = 'hit_late')
+                        AND first_putt = '4_to_8m'
                        THEN 1 END) AS att_gir_first_putt_4_to_8m,
-            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = 'over_8m'
+            COUNT(CASE WHEN attributable = 1
+                        AND (gir = 1 OR green_miss_dir = 'hit_late')
+                        AND first_putt = 'over_8m'
                        THEN 1 END) AS att_gir_first_putt_over_8m,
             COUNT(CASE WHEN attributable = 1 AND gir = 1 AND putts = 0
                         AND first_putt IS NULL
@@ -721,21 +803,34 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                         AND putts = 0 AND first_putt IS NULL
                        THEN 1 END) AS att_chip_holed_hard,
 
-            -- Effective short-game strokes, Σ COALESCE(C, 1) over the miss
-            -- cohort (proposal §3 assumption 2). Capture v2 (wave 4) writes
-            -- short_game_strokes, so a duffed chip now charges the 2 it cost
-            -- and a hole with no answer still falls back to 1 through the
-            -- COALESCE. Approach subtracts the same effective C that short
+            -- Effective short-game strokes over every attributable hole with a
+            -- recorded short game, whatever the gir bit says (migration 064) —
+            -- gating on gir = 0 alone would drop a gir = 1 chip's strokes into
+            -- the approach residual, where they are approach damage the
+            -- approach never did. The default differs by side, per the
+            -- proposal: on a MISSED green a chip is certain, so an untouched
+            -- counter models as 1 (proposal §3 assumption 2, the wave-1
+            -- COALESCE that let wave 4 be a capture change and not a view
+            -- rebuild); on a HIT green only a recorded count charges anything
+            -- — the recorded difficulty asserts the chip, the absent counter
+            -- keeps its strokes where the residual already holds them.
+            -- hit_late holes cannot reach either arm: the hole CTE nulls their
+            -- difficulty. Approach subtracts the same effective C that short
             -- game charges, which is the only way the telescope survives a
-            -- duffed chip — shipping the COALESCE here in wave 1 is why wave 4
-            -- was a capture change and not a second view rebuild.
-            COALESCE(SUM(CASE WHEN attributable = 1 AND gir = 0
+            -- duffed chip.
+            COALESCE(SUM(CASE WHEN attributable = 1
                                AND short_game_difficulty = 'standard'
-                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                              THEN CASE WHEN gir = 0
+                                        THEN COALESCE(short_game_strokes, 1)
+                                        ELSE COALESCE(short_game_strokes, 0) END
+                              ELSE 0 END), 0)
                 AS att_sg_strokes_effective_standard,
-            COALESCE(SUM(CASE WHEN attributable = 1 AND gir = 0
+            COALESCE(SUM(CASE WHEN attributable = 1
                                AND short_game_difficulty = 'hard'
-                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                              THEN CASE WHEN gir = 0
+                                        THEN COALESCE(short_game_strokes, 1)
+                                        ELSE COALESCE(short_game_strokes, 0) END
+                              ELSE 0 END), 0)
                 AS att_sg_strokes_effective_hard,
 
             -- === CAPTURE V2 (migration 055) ===
@@ -754,7 +849,13 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             -- 'green_miss_recorded'.
 
             -- Green dispersion. long + short + left + right = recorded.
-            COUNT(CASE WHEN gir = 0 AND green_miss_dir IS NOT NULL
+            -- 'hit_late' (migration 064) is the FIFTH answer of the same key
+            -- but not a miss direction — the first attempt HIT the green, over
+            -- regulation — so it is excluded here to keep the four-direction
+            -- partition exact, and counted as 'green_hit_late' in the 064
+            -- block below.
+            COUNT(CASE WHEN gir = 0 AND green_miss_dir IN ('long', 'short',
+                                                           'left', 'right')
                        THEN 1 END) AS green_miss_recorded,
             COUNT(CASE WHEN gir = 0 AND green_miss_dir = 'long'
                        THEN 1 END) AS green_miss_long,
@@ -887,9 +988,15 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                         AND short_game_difficulty = 'bunker'
                         AND putts = 0 AND first_putt IS NULL
                        THEN 1 END) AS att_chip_holed_bunker,
-            COALESCE(SUM(CASE WHEN attributable = 1 AND gir = 0
+            -- Same gir-split default as the standard/hard legs above
+            -- (migration 064): certain chip modelled as 1 on a miss, recorded
+            -- strokes only on a hit green.
+            COALESCE(SUM(CASE WHEN attributable = 1
                                AND short_game_difficulty = 'bunker'
-                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                              THEN CASE WHEN gir = 0
+                                        THEN COALESCE(short_game_strokes, 1)
+                                        ELSE COALESCE(short_game_strokes, 0) END
+                              ELSE 0 END), 0)
                 AS att_sg_strokes_effective_bunker,
 
             -- === SHORT-GAME OUTCOMES (migration 062) ===
@@ -1080,7 +1187,83 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             COUNT(CASE WHEN dbl_cause = 'penalty' AND penalty_source = 'short_or_green'
                        THEN 1 END) AS dbl_penalty_short,
             COUNT(CASE WHEN dbl_cause = 'penalty' AND penalty_source IS NULL
-                       THEN 1 END) AS dbl_penalty_unknown
+                       THEN 1 END) AS dbl_penalty_unknown,
+
+            -- === EXACT METRES + THE FIFTH GREEN ANSWER (migration 064) ===
+            --
+            -- Counts and sums only, like everything above. Three families:
+            --
+            -- 1. EXACT FIRST-PUTT METRES. 'first_putt_m' refines the fine
+            --    bucket with a metre value ('20+' stored as 20), so the sums
+            --    are REAL. The '_gir' pair is the proximity headline (average
+            --    first-putt distance on greens hit); the unconditioned pair is
+            --    its all-holes twin. Same coherence guard as every putting
+            --    column.
+            -- 2. METERS MADE. Σ metres over one-putt holes with a metre
+            --    recorded, plus 0.5 m for each one-putt whose only answer was
+            --    the 'inside_1m' bucket — the bucket's midpoint, priced once
+            --    here so both clients divide the same number.
+            --    'one_putts_unmeasured' is the coverage column (Postel:
+            --    surfaced, never excluded): every one-putt with no metre that
+            --    does not earn the flat inside_1m credit — the four fine outer
+            --    buckets, the three legacy coarse buckets, and one-putts with
+            --    no bucket at all. Anything the sum cannot see.
+            -- 3. CHIP ON A HIT GREEN. gir = 1 holes with a short-game answer
+            --    (par-5 greenside in two, chip on for GIR — capture v3 stops
+            --    contradicting them away). NO COALESCE default here: on a hit
+            --    green an unrecorded count means NO chip, so only recorded
+            --    answers count. 'one_putt' pairs are the up-and-down outcome
+            --    (putts <= 1), so the DENOMINATORS require a usable putt count
+            --    too (putting_coherent + putts IS NOT NULL, the
+            --    scramble_attempts pattern): a chip hole with no putt count has
+            --    no outcome and can enter neither side of the rate. The par-5
+            --    twins feed up-and-down for birdie.
+            --    'green_hit_late' is the fifth-answer count — the client
+            --    composes "green attempts hit" as gir_hits + green_hit_late.
+            COUNT(CASE WHEN putting_coherent = 1 AND first_putt_m IS NOT NULL
+                       THEN 1 END) AS first_putt_m_recorded,
+            COALESCE(SUM(CASE WHEN putting_coherent = 1
+                              THEN first_putt_m END), 0) AS first_putt_m_sum,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 1
+                        AND first_putt_m IS NOT NULL
+                       THEN 1 END) AS first_putt_m_recorded_gir,
+            COALESCE(SUM(CASE WHEN putting_coherent = 1 AND gir = 1
+                              THEN first_putt_m END), 0) AS first_putt_m_sum_gir,
+            COALESCE(SUM(CASE WHEN putting_coherent = 1 AND putts = 1
+                              THEN first_putt_m END), 0)
+                + 0.5 * COUNT(CASE WHEN putting_coherent = 1 AND putts = 1
+                                    AND first_putt = 'inside_1m'
+                                    AND first_putt_m IS NULL
+                                   THEN 1 END) AS meters_made_sum,
+            COUNT(CASE WHEN putting_coherent = 1 AND putts = 1
+                        AND (first_putt_m IS NOT NULL OR first_putt = 'inside_1m')
+                       THEN 1 END) AS meters_made_holes,
+            COUNT(CASE WHEN putting_coherent = 1 AND putts = 1
+                        AND first_putt_m IS NULL
+                        AND (first_putt IS NULL OR first_putt <> 'inside_1m')
+                       THEN 1 END) AS one_putts_unmeasured,
+            COUNT(CASE WHEN gir = 0 AND green_miss_dir = 'hit_late'
+                       THEN 1 END) AS green_hit_late,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 1
+                        AND (short_game_difficulty IS NOT NULL
+                             OR short_game_strokes IS NOT NULL)
+                        AND putts IS NOT NULL
+                       THEN 1 END) AS chip_gir_holes,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 1
+                        AND (short_game_difficulty IS NOT NULL
+                             OR short_game_strokes IS NOT NULL)
+                        AND putts <= 1
+                       THEN 1 END) AS chip_gir_one_putt,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 1 AND par >= 5
+                        AND (short_game_difficulty IS NOT NULL
+                             OR short_game_strokes IS NOT NULL)
+                        AND putts IS NOT NULL
+                       THEN 1 END) AS chip_gir_par5,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 1 AND par >= 5
+                        AND (short_game_difficulty IS NOT NULL
+                             OR short_game_strokes IS NOT NULL)
+                        AND putts <= 1
+                       THEN 1 END) AS chip_gir_par5_one_putt
         FROM sequenced
         GROUP BY player_id, round_id
     `.execute(db);
@@ -1294,7 +1477,21 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             SUM(dbl_penalty_tee) AS dbl_penalty_tee,
             SUM(dbl_penalty_approach) AS dbl_penalty_approach,
             SUM(dbl_penalty_short) AS dbl_penalty_short,
-            SUM(dbl_penalty_unknown) AS dbl_penalty_unknown
+            SUM(dbl_penalty_unknown) AS dbl_penalty_unknown,
+
+            -- === EXACT METRES + THE FIFTH GREEN ANSWER (migration 064) ===
+            SUM(first_putt_m_recorded) AS first_putt_m_recorded,
+            SUM(first_putt_m_sum) AS first_putt_m_sum,
+            SUM(first_putt_m_recorded_gir) AS first_putt_m_recorded_gir,
+            SUM(first_putt_m_sum_gir) AS first_putt_m_sum_gir,
+            SUM(meters_made_sum) AS meters_made_sum,
+            SUM(meters_made_holes) AS meters_made_holes,
+            SUM(one_putts_unmeasured) AS one_putts_unmeasured,
+            SUM(green_hit_late) AS green_hit_late,
+            SUM(chip_gir_holes) AS chip_gir_holes,
+            SUM(chip_gir_one_putt) AS chip_gir_one_putt,
+            SUM(chip_gir_par5) AS chip_gir_par5,
+            SUM(chip_gir_par5_one_putt) AS chip_gir_par5_one_putt
         FROM v_player_round_stats
         GROUP BY player_id
     `.execute(db);

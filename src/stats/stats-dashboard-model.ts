@@ -22,6 +22,8 @@ import {
     birdieConversion,
     bounceBackRate,
     chipInside2mRate,
+    chipOnGirPar5Birdie,
+    chipOnGirRate,
     chipOutcomes,
     costOfMissedGreen,
     DEFAULT_SG_BASELINE,
@@ -30,20 +32,24 @@ import {
     doubleCauseGroups,
     extraShortGameStrokes,
     fairwayRate,
+    firstPuttMakeCurve,
     firstPuttMix,
     firstPuttResolved,
     girByPar,
     girFirstPuttMix,
     girRate,
     girRateByTee,
+    greenAttemptsHit,
     greenMissDispersion,
     hardChipShare,
     meanOfPresent,
+    metersMade,
     onePuttRate,
     penaltiesPerRound,
     penaltyHoleShare,
     penaltySourceSplit,
     penaltyTax,
+    proximityOnGir,
     PUTT_BUCKETS,
     puttDistribution,
     puttsAfterMissedGreen,
@@ -78,6 +84,8 @@ import {
     type ByTee,
     type ChipOutcomes,
     type DoubleCauseGroup,
+    type FirstPuttCurvePoint,
+    type FirstPuttCurveRow,
     type GreenMissDispersion,
     type PenaltySourceSplit,
     type PenaltySplit,
@@ -86,6 +94,7 @@ import {
     type Rate,
     type ResultsSummary,
     type SgBaselineBundle,
+    type SgGirArrivalMetres,
     type StrokesLost,
     type StrokesLostComponent,
     type TeeMissDispersion,
@@ -260,6 +269,27 @@ export interface StatsApproachPanel {
      * `girFirstPuttRecorded`, so they sum to 1 across buckets.
      */
     girFirstPuttMix: Record<PuttBucket, Rate>;
+    /**
+     * Average first-putt metres on greens hit (migration 064) — the exact
+     * figure `girFirstPuttMix` above is the bucket-shaped proxy for.
+     *
+     * Its denominator is the greens hit that recorded a METRE, which is a
+     * subset of the greens the mix is over: the refine tap is optional, so a
+     * bucket-only hole has no metre to average. That is coverage, never an
+     * exclusion — the mix beneath it still counts the hole.
+     */
+    proximityOnGir: Rate;
+    /**
+     * Greens hit at all, GIR plus hit-late, over the same `girRecorded` the GIR
+     * rate is over. Ball-striking beside position.
+     */
+    greenAttemptsHit: Rate;
+    /**
+     * Holes answered "On green" — the first green attempt hit over regulation.
+     * The pair's gate: with none recorded, `greenAttemptsHit` IS `gir` and a
+     * second identical row would say nothing.
+     */
+    greenHitLate: number;
     birdieConversion: Rate;
     /**
      * How often a missed green left a HARD short-game shot. A property of the
@@ -327,6 +357,32 @@ export interface StatsPuttingPanel {
     /** The four buckets, shares of `puttsRecorded`. */
     puttDistribution: Record<PuttCountBucket, Rate>;
     puttsPerHoleByPar: ByParGroup<Rate>;
+    /**
+     * Metres of first putts holed, summed over the one-putt holes that recorded
+     * one (migration 064). A SUM, not a rate: it is the distance the putter
+     * actually accounted for, and dividing it by anything makes it a different
+     * fact.
+     */
+    metersMade: number;
+    /** One-putt holes behind that sum — the figure's own gate and its sample. */
+    metersMadeHoles: number;
+    /**
+     * One-putt holes with no metre recorded. Coverage, printed as coverage: an
+     * outer-bucket one-putt without a metre contributes nothing to `metersMade`
+     * and must not read as a putt of zero metres.
+     */
+    onePuttsUnmeasured: number;
+    /**
+     * One-putt rate and average putts per recorded metre, ascending — the make
+     * curve (proposal §4).
+     *
+     * SPARSE and CAREER-WIDE, both deliberately. A metre nobody has attempted
+     * has no point at all, so the list is the distances the player has actually
+     * putted from; and the rows come from the server's own cross-tab over every
+     * round rather than from this window, because a window of ten rounds holds
+     * a handful of attempts per metre. The card's sheet says both.
+     */
+    curve: FirstPuttCurvePoint[];
 }
 
 export interface StatsShortGamePanel {
@@ -386,6 +442,16 @@ export interface StatsShortGamePanel {
      */
     extraShortGameStrokes: number;
     shortGameStrokesRecorded: number;
+    /**
+     * Up-and-in on a green that was HIT (migration 064): the par-5 greenside
+     * chip that still made regulation, and whose putt then went in. Its
+     * denominator is GIR holes with a recorded chip — a cohort that is empty
+     * for most players, which is why the rows are gated on it rather than
+     * printed as an empty pair.
+     */
+    chipOnGir: Rate;
+    /** The par-5 split of the same rows: greenside in two, chip, one putt for birdie. */
+    chipOnGirPar5Birdie: Rate;
 }
 
 export interface StatsScoringPanel {
@@ -484,6 +550,39 @@ export function presentPanels(model: StatsDashboardModel): StatsPanelId[] {
 }
 
 /**
+ * One round's exact-metre arrival cells, tolerating a payload without them.
+ *
+ * The column shipped with migration 064; a server one release behind answers
+ * rows with no `girArrivalMetres` at all, and `strokesLostV3` would iterate
+ * `undefined`. The fallback is the pure bucket pricing, which is exactly what
+ * that older payload means.
+ */
+export function arrivalMetres(row: PlayerRoundStats): SgGirArrivalMetres[] {
+    return row.girArrivalMetres ?? [];
+}
+
+/**
+ * The window's arrival cells, one per metre, ascending.
+ *
+ * Summed here rather than taken from the summary's `girArrivalMetresTotals`:
+ * that field covers the first PAGE, and every figure on this screen is over the
+ * WINDOW, which the filter and the preset move independently of paging.
+ */
+export function sumGirArrivalMetres(
+    rows: readonly PlayerRoundStats[],
+): SgGirArrivalMetres[] {
+    const byMeters = new Map<number, number>();
+    for (const row of rows) {
+        for (const cell of arrivalMetres(row)) {
+            byMeters.set(cell.meters, (byMeters.get(cell.meters) ?? 0) + cell.holes);
+        }
+    }
+    return [...byMeters.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([meters, holes]) => ({ meters, holes }));
+}
+
+/**
  * Reduce a window of rounds to a screen.
  *
  * `rows` may arrive in any order; they are sorted newest-first here so a caller
@@ -493,16 +592,24 @@ export function presentPanels(model: StatsDashboardModel): StatsPanelId[] {
  * priced against — ONE bundle for the whole model, so the waterfall, the
  * priorities and the putting trend can never disagree about who the reader is
  * being compared with. Defaults to the tier the app shipped with.
+ *
+ * `curve` is the server's per-metre first-putt cross-tab, which is CAREER-WIDE
+ * and therefore the one input here that the window does not narrow. A caller
+ * with none — the per-round screen — passes nothing and the block is absent,
+ * which is the honest answer: eighteen holes do not make a make curve.
  */
 export function buildDashboardModel(
     rows: readonly PlayerRoundStats[],
     bundle: SgBaselineBundle = DEFAULT_SG_BASELINE,
+    curve: readonly FirstPuttCurveRow[] = [],
 ): StatsDashboardModel {
     const ordered = sortRows(rows);
     if (ordered.length === 0) return EMPTY_DASHBOARD_MODEL;
 
     const totals = sumMeasures(ordered.map((r) => r.measures));
-    const perRound = ordered.map((r) => strokesLostForBundle(r.measures, bundle));
+    const perRound = ordered.map((r) =>
+        strokesLostForBundle(r.measures, bundle, arrivalMetres(r)),
+    );
     const roundCount = ordered.length;
     // The capture-only sum (owner ruling, 2026-08-13): a round without any
     // stat answer contributes its SCORE to the Results and to the score-only
@@ -535,12 +642,16 @@ export function buildDashboardModel(
         }),
         statCaptureRounds: capturedRows.length,
         totals,
-        waterfall: strokesLostForBundle(totals, bundle),
+        // The window's own metre cells, summed the same way `totals` is: a
+        // refined hole prices its arrival at the metre instead of at its
+        // bucket anchor, so the summed waterfall stays exactly the sum of the
+        // per-round ones.
+        waterfall: strokesLostForBundle(totals, bundle, sumGirArrivalMetres(ordered)),
         priorities: buildPriorities(perRound),
         trends: buildTrends(ordered, bundle),
         tee: teePanel(totals, roundCount),
         approach: approachPanel(totals),
-        putting: puttingPanel(totals, bundle),
+        putting: puttingPanel(totals, bundle, curve),
         shortGame: shortGamePanel(totals),
         scoring: scoringPanel(totals, roundCount, capturedTotals),
         // From the ROWS, not the totals: the best round and the window's mix of
@@ -632,11 +743,11 @@ export function buildTrends(
         id: string,
         title: string,
         kind: StatsTrendKind,
-        value: (m: StatMeasures) => number | null,
+        value: (m: StatMeasures, cells: readonly SgGirArrivalMetres[]) => number | null,
     ): StatsTrend | null => {
         const points: number[] = [];
         for (const row of chrono) {
-            const v = value(row.measures);
+            const v = value(row.measures, arrivalMetres(row));
             if (v !== null) points.push(v);
         }
         return points.length >= TREND_MIN_POINTS ? { id, title, kind, points } : null;
@@ -648,8 +759,10 @@ export function buildTrends(
         // A trend point is a cross-round comparison, so it normalizes and
         // inherits the >= 9-attributed floor. A round under it plots nothing,
         // which the sparkline already skips.
-        series('putting', 'Putting', 'strokesLost', (m) =>
-            sgPer18(strokesLostForBundle(m, bundle), 'putting'),
+        // The metre cells travel with the round, so a refined round's putting
+        // point is priced at the metre exactly as its row in the list is.
+        series('putting', 'Putting', 'strokesLost', (m, cells) =>
+            sgPer18(strokesLostForBundle(m, bundle, cells), 'putting'),
         ),
         series('scramble', 'Scrambling', 'percentage', (m) => solid(scrambleRate(m).overall)),
     ].filter((t): t is StatsTrend => t !== null);
@@ -709,6 +822,9 @@ export function approachPanel(m: StatMeasures): StatsApproachPanel | null {
         gir: girRate(m),
         girByTee: girRateByTee(m),
         girFirstPuttMix: mix,
+        proximityOnGir: proximityOnGir(m),
+        greenAttemptsHit: greenAttemptsHit(m),
+        greenHitLate: m.greenHitLate,
         birdieConversion: birdieConversion(m),
         hardChipShare: hardChipShare(m),
         girByPar: girByPar(m),
@@ -739,6 +855,7 @@ export function approachPanel(m: StatMeasures): StatsApproachPanel | null {
 export function puttingPanel(
     m: StatMeasures,
     bundle: SgBaselineBundle,
+    curve: readonly FirstPuttCurveRow[] = [],
 ): StatsPuttingPanel | null {
     if (m.puttsRecorded <= 0 && m.firstPuttRecorded <= 0) return null;
     const spread = {} as Record<PuttBucket, Rate>;
@@ -761,13 +878,22 @@ export function puttingPanel(
         puttsAfterMissedGreen: puttsAfterMissedGreen(m),
         puttDistribution: puttDistribution(m),
         puttsPerHoleByPar: puttsPerHoleByPar(m),
+        metersMade: metersMade(m),
+        metersMadeHoles: m.metersMadeHoles,
+        onePuttsUnmeasured: m.onePuttsUnmeasured,
+        curve: firstPuttMakeCurve(curve),
     };
 }
 
 export function shortGamePanel(m: StatMeasures): StatsShortGamePanel | null {
     const attempts =
         m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker;
-    if (attempts <= 0) return null;
+    // The chip on a green in regulation (migration 064) opens this card in its
+    // own right, exactly as it does on iOS: it is a recorded short-game cohort,
+    // and a player whose window holds one of those and no scramble attempt
+    // would otherwise be told they have no short game at all. Every other
+    // section keeps its own gate, so such a card is the chip section alone.
+    if (attempts <= 0 && m.chipGirHoles <= 0) return null;
     // The two buckets that together mean "inside 2 m", v2-resolved on both
     // sides so numerator and denominator cover the same holes.
     const made = m.onePuttInside1m + m.onePutt1To2m;
@@ -790,6 +916,8 @@ export function shortGamePanel(m: StatMeasures): StatsShortGamePanel | null {
         scrambleAttemptsBunker: m.scrambleAttemptsBunker,
         extraShortGameStrokes: extraShortGameStrokes(m),
         shortGameStrokesRecorded: m.shortGameStrokesRecorded,
+        chipOnGir: chipOnGirRate(m),
+        chipOnGirPar5Birdie: chipOnGirPar5Birdie(m),
     };
 }
 

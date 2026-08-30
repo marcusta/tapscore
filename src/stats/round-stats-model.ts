@@ -37,7 +37,11 @@ import {
     type StrokesLost,
     type StrokesLostDeltas,
 } from '../round/stat-measures';
-import { buildDashboardModel, type StatsDashboardModel } from './stats-dashboard-model';
+import {
+    arrivalMetres,
+    buildDashboardModel,
+    type StatsDashboardModel,
+} from './stats-dashboard-model';
 import { sortRows } from './stats-window';
 
 // --- Score marker ------------------------------------------------------------
@@ -271,7 +275,13 @@ export function buildRoundStatsModel(args: {
     const panels = buildDashboardModel([round], bundle);
     const waterfall = panels.waterfall;
     const window = priorRounds(round, history, windowSize);
-    const windowLosts = window.map((r) => strokesLostForBundle(r.measures, bundle));
+    // Each prior round priced with ITS OWN arrival metres, the same way the
+    // dashboard prices a row. Without them the window baseline would be the
+    // unrefined bucket pricing while this round's waterfall is refined, and
+    // the pricing difference would surface as a delta the player never played.
+    const windowLosts = window.map((r) =>
+        strokesLostForBundle(r.measures, bundle, arrivalMetres(r)),
+    );
     const row = panels.rounds[0];
     return {
         roundId: round.roundId,

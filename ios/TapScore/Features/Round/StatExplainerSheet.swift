@@ -9,7 +9,10 @@ import SwiftUI
 /// capture card must stay wordless, and a per-prompt glyph would put eleven of
 /// them on it.
 struct StatExplainerSheet: View {
-    /// The visible prompts, exactly as the step ordered them.
+    /// Every prompt the step is asking, in its order — including a pair the
+    /// card has folded behind a disclosure. This sheet is the vocabulary, and a
+    /// golfer wondering what "Add short game" means is precisely the reader who
+    /// opens it.
     let prompts: [StatPrompt]
 
     @Environment(\.dismiss) private var dismiss
@@ -18,7 +21,12 @@ struct StatExplainerSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: TapSpacing.md) {
                 ForEach(prompts) { prompt in
-                    card(title: prompt.label, text: StatExplainers.explainer(prompt.key))
+                    // `StatCaptureCopy.name`, not `prompt.label`: a prompt that
+                    // renders its row without a heading (`first_putt_m`) must
+                    // still arrive here with a title, not as a nameless card.
+                    card(
+                        title: StatCaptureCopy.name(prompt),
+                        text: StatExplainers.explainer(prompt.key))
                 }
             }
             .padding(TapSpacing.lg)

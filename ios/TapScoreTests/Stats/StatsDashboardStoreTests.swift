@@ -34,21 +34,33 @@ final class StatsDashboardStoreTests: XCTestCase {
         venue: String = "outdoor",
         type: String = "full_18",
         teeRecorded: Int = 14,
-        fairwayHits: Int = 7
+        fairwayHits: Int = 7,
+        arrivals: [(meters: Double, holes: Double)] = [],
+        overrides: [String: Int] = [:]
     ) -> String {
         let name = courseName.map { "\"\($0)\"" } ?? "null"
         var fields: [String] = []
         for field in Self.measureFields {
+            if let value = overrides[field] {
+                fields.append("\"\(field)\":\(value)")
+                continue
+            }
             switch field {
             case "teeRecorded": fields.append("\"teeRecorded\":\(teeRecorded)")
             case "fairwayHits": fields.append("\"fairwayHits\":\(fairwayHits)")
             default: fields.append("\"\(field)\":0")
             }
         }
+        // The exact-metre arrivals ride BESIDE the measures, not inside them
+        // (migration 064) — the row's own cells, which is what makes the
+        // window's strokes-gained sum follow the window.
+        let cells = arrivals
+            .map { "{\"meters\":\($0.meters),\"holes\":\($0.holes)}" }
+            .joined(separator: ",")
         return """
         {"roundId":"\(id)","date":"\(date)","courseName":\(name),"courseId":"\(courseId)",
          "roundType":"\(type)","venueType":"\(venue)","name":null,"holeCount":18,
-         "measures":{\(fields.joined(separator: ","))}}
+         "measures":{\(fields.joined(separator: ","))},"girArrivalMetres":[\(cells)]}
         """
     }
 
@@ -117,6 +129,9 @@ final class StatsDashboardStoreTests: XCTestCase {
         "strokesVsParMissBunker", "dblPenalty", "dblFailedRecovery", "dblMultiChip",
         "dblThreePutt", "dblTroubleTee", "dblFullSwing", "dblUnattributed", "dblPenaltyTee",
         "dblPenaltyApproach", "dblPenaltyShort", "dblPenaltyUnknown",
+        "firstPuttMRecorded", "firstPuttMSum", "firstPuttMRecordedGir", "firstPuttMSumGir",
+        "metersMadeSum", "metersMadeHoles", "onePuttsUnmeasured", "greenHitLate",
+        "chipGirHoles", "chipGirOnePutt", "chipGirPar5", "chipGirPar5OnePutt",
     ]
 
     private static func page(
@@ -463,5 +478,156 @@ final class StatsDashboardStoreTests: XCTestCase {
 
         XCTAssertEqual(store.courseOptions.map(\.name), ["Linköpings GK", "Vadstena GK"])
         XCTAssertEqual(store.courseOptions.map(\.roundCount), [2, 1])
+    }
+
+    // MARK: - 7. Exact first-putt metres (migration 064)
+
+    private static let curvePath = "/players/me/stats/first-putt-curve"
+
+    private func curveRequests() -> [RoundStubURLProtocol.Recorded] {
+        RoundStubURLProtocol.requests(for: Self.curvePath)
+    }
+
+    /// The cells ride BESIDE `measures` on the row, which is what lets the
+    /// window select them — a summary-level total could not be narrowed.
+    @MainActor
+    func testTheArrivalCellsDecodeOffTheRow() async {
+        RoundStubURLProtocol.route(
+            "/players/me/stats", method: "GET",
+            Self.page(
+                rounds: [
+                    Self.roundJSON(
+                        id: "a", date: "2026-07-30", arrivals: [(4, 3), (9, 1)])
+                ], total: 1))
+        let store = makeStore(preset: .all)
+
+        await store.load()
+
+        XCTAssertEqual(store.loadedRounds.first?.girArrivalMetres.map(\.meters), [4, 9])
+        XCTAssertEqual(store.loadedRounds.first?.girArrivalMetres.map(\.holes), [3, 1])
+    }
+
+    /// A round with no exact distance recorded is an EMPTY list, never a missing
+    /// key the decode has to guess at.
+    @MainActor
+    func testARowWithNoExactDistanceCarriesAnEmptyCellList() async {
+        RoundStubURLProtocol.route(
+            "/players/me/stats", method: "GET", Self.page(rounds: Self.rounds(1), total: 1))
+        let store = makeStore(preset: .all)
+
+        await store.load()
+
+        XCTAssertEqual(store.loadedRounds.first?.girArrivalMetres.count, 0)
+    }
+
+    @MainActor
+    func testTheCurveIsFetchedOnceAndMappedIntoTheModel() async {
+        RoundStubURLProtocol.route(
+            "/players/me/stats", method: "GET",
+            Self.page(
+                rounds: [
+                    Self.roundJSON(
+                        id: "a", date: "2026-07-30",
+                        overrides: ["puttsRecorded": 18, "puttsTotal": 31])
+                ], total: 1))
+        RoundStubURLProtocol.route(
+            Self.curvePath, method: "GET",
+            """
+            [{"firstPuttM":1,"attempts":10,"onePutts":8,"puttsTotal":12},
+             {"firstPuttM":3,"attempts":6,"onePutts":2,"puttsTotal":10}]
+            """)
+        let store = makeStore(preset: .all)
+
+        await store.load()
+
+        XCTAssertEqual(curveRequests().count, 1)
+        XCTAssertEqual(store.firstPuttCurve.map(\.firstPuttM), [1, 3])
+        XCTAssertEqual(store.firstPuttCurve.map(\.onePutts), [8, 2])
+        XCTAssertEqual(store.model.putting?.makeCurve.map(\.id), ["1", "3"])
+        XCTAssertEqual(store.model.putting?.makeCurve.first?.made.n, 8)
+    }
+
+    /// The curve is a SECOND read, and a failed one must not take the dashboard
+    /// down with it: an absent group is already the app's language for "nothing
+    /// recorded here", so the failure is silent.
+    @MainActor
+    func testAFailedCurveLeavesTheRestOfTheDashboardStanding() async {
+        RoundStubURLProtocol.route(
+            "/players/me/stats", method: "GET", Self.page(rounds: Self.rounds(3), total: 3))
+        RoundStubURLProtocol.route(
+            Self.curvePath, method: "GET", status: 500, "{\"error\":\"boom\"}")
+        let store = makeStore(preset: .all)
+
+        await store.load()
+
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.loadedCount, 3)
+        XCTAssertNil(store.extendProblem)
+        XCTAssertTrue(store.firstPuttCurve.isEmpty)
+        XCTAssertTrue(store.model.putting?.makeCurve.isEmpty ?? true)
+    }
+
+    /// A reload asks again — the curve is history-wide, but it is still data
+    /// that grows as the player records rounds.
+    @MainActor
+    func testAReloadRefetchesTheCurve() async {
+        RoundStubURLProtocol.route(
+            "/players/me/stats", method: "GET", Self.page(rounds: Self.rounds(1), total: 1))
+        RoundStubURLProtocol.route(
+            Self.curvePath, method: "GET",
+            "[{\"firstPuttM\":2,\"attempts\":4,\"onePutts\":1,\"puttsTotal\":7}]")
+        let store = makeStore(preset: .all)
+
+        await store.load()
+        await store.refresh()
+
+        XCTAssertEqual(curveRequests().count, 2)
+        XCTAssertEqual(store.firstPuttCurve.count, 1)
+    }
+
+    /// Two loads in flight: whichever curve response lands last, the curve on
+    /// screen is the LATEST load's.
+    ///
+    /// The curve is fetched after the first page, so a reader who taps refresh
+    /// while a slow request is out has two of them open. Without the epoch
+    /// guard, the older response lands last as often as not and the screen shows
+    /// a curve from a load nobody is waiting for any more.
+    @MainActor
+    func testAnOverlappingLoadCannotLandAnOlderCurveLast() async {
+        RoundStubURLProtocol.route(
+            "/players/me/stats", method: "GET", Self.page(rounds: Self.rounds(1), total: 1))
+        RoundStubURLProtocol.route(
+            Self.curvePath, method: "GET",
+            "[{\"firstPuttM\":1,\"attempts\":4,\"onePutts\":1,\"puttsTotal\":7}]",
+            "[{\"firstPuttM\":9,\"attempts\":4,\"onePutts\":1,\"puttsTotal\":7}]")
+        let gate = RoundStubURLProtocol.gate("GET \(Self.curvePath)")
+        let store = makeStore(preset: .all)
+
+        // The older load, held at its curve request.
+        let first = Task { await store.load() }
+        for _ in 0..<5000 where curveRequests().isEmpty { await Task.yield() }
+        guard curveRequests().count == 1 else {
+            gate.signal()
+            first.cancel()
+            return XCTFail("timed out waiting for the first curve request")
+        }
+        // The newer load, held at its own.
+        let second = Task { await store.load() }
+        for _ in 0..<5000 where curveRequests().count < 2 { await Task.yield() }
+        guard curveRequests().count == 2 else {
+            gate.signal()
+            first.cancel()
+            second.cancel()
+            return XCTFail("timed out waiting for the second curve request")
+        }
+
+        // Released together: the two responses may arrive in either order, and
+        // the assertion below has to hold for both.
+        gate.signal()
+        gate.signal()
+        await first.value
+        await second.value
+
+        XCTAssertEqual(store.firstPuttCurve.map(\.firstPuttM), [9])
     }
 }

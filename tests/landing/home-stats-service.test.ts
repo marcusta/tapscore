@@ -34,11 +34,19 @@ function round(id: string, date = '2026-07-20'): PlayerRoundStats {
             girRecorded: 18,
             girHits: 9,
         }),
+        girArrivalMetres: [],
     };
 }
 
 function page(rows: PlayerRoundStats[], nextCursor: string | null = null): PlayerStatsSummary {
-    return { playerId: 'p1', roundsWithStats: rows.length, totals: null, rounds: rows, nextCursor };
+    return {
+        playerId: 'p1',
+        roundsWithStats: rows.length,
+        totals: null,
+        girArrivalMetresTotals: null,
+        rounds: rows,
+        nextCursor,
+    };
 }
 
 const state: {

@@ -13,6 +13,10 @@ enum PlayerStatsEndpoints {
         method: .get,
         path: "/players/me/stats",
         pathParams: [])
+    static let myFirstPuttCurve = APIEndpoint<EmptyInput, [FirstPuttCurvePointModel]>(
+        method: .get,
+        path: "/players/me/stats/first-putt-curve",
+        pathParams: [])
     static let myRoundStats = APIEndpoint<LeaderboardsForRoundInput, [PlayerRoundHoleStats]>(
         method: .get,
         path: "/players/me/rounds/:roundId/stats",
