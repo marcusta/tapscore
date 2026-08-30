@@ -280,17 +280,37 @@ interface PointerState {
  */
 export class ScoreEntryComponent extends Component {
     static styles = `
+        /* Score entry is tapped fast and repeatedly: the circle in a row, then
+           keys on the pad, then Hit/Miss on the stats step. Two taps inside the
+           double-tap window are scoring, never a zoom request, so
+           double-tap-to-zoom is off across these surfaces. Pinch-to-zoom is
+           untouched here and everywhere else — the leaderboard still zooms,
+           which some players want.
+
+           EVERY declaration below sits BEFORE the block's nested rules on
+           purpose. A declaration written after a nested rule is dropped
+           outright by engines without CSS nested declarations (Safari before
+           17.2, Chrome before 130) — which is exactly how the first attempt at
+           this shipped, and why the stats step still zoomed in production.
+
+           The three fullscreen surfaces repeat the rule rather than leaning on
+           .se alone. Ancestors do constrain a descendant's touch-action, but
+           each of these is a fixed-position layer that IS the screen while it
+           is up, so it carries its own. */
         .se {
             margin-top: ${s('xl')};
+            touch-action: manipulation;
             &.hidden { display: none; }
+        }
 
-            /* Score entry is tapped fast and repeatedly: the circle in a row,
-               then keys on the pad. Two taps inside the double-tap window are
-               scoring, never a zoom request, so drop double-tap-to-zoom for
-               this subtree (descendants intersect with their ancestors'
-               touch-action, so the fixed-position keypad and stats screens
-               inherit it too). Pinch-to-zoom is untouched here and everywhere
-               else — the leaderboard still zooms, which some players want. */
+        /* The tap targets themselves, as one flat rule. The surface rules above
+           should already cover them through the ancestor chain; these do not
+           depend on that, and a flat single-declaration rule cannot be lost to
+           the nested-declaration parsing above either. */
+        .se-row__circle, .se-mrow, .se-key, .se-seg,
+        .se-modal__navbtn, .se-modal__close,
+        .se-pad__ext-step, .se-stats__step-btn,
+        .se-stats__next, .se-stats__back {
             touch-action: manipulation;
         }
 
@@ -441,6 +461,7 @@ export class ScoreEntryComponent extends Component {
             position: fixed; inset: 0; z-index: 50;
             display: flex; flex-direction: column;
             background: #121212; color: #fff;
+            touch-action: manipulation;
             &.hidden { display: none; }
         }
         .se-modal__head {
@@ -502,6 +523,7 @@ export class ScoreEntryComponent extends Component {
             position: fixed; inset: 0; z-index: 60;
             background: #121212; color: #fff;
             display: flex; flex-direction: column;
+            touch-action: manipulation;
             &.hidden { display: none; }
 
             & .se-stats__head {
@@ -745,6 +767,7 @@ export class ScoreEntryComponent extends Component {
             position: fixed; inset: 0; z-index: 55;
             display: flex; align-items: flex-end; justify-content: center;
             background: rgba(0, 0, 0, 0.45);
+            touch-action: manipulation;
             &.hidden { display: none; }
         }
         .se-hcp__panel {
