@@ -15,12 +15,16 @@ enum CreatePickerRows {
     // MARK: - Courses (spec §2.2 B2.1–B2.7)
 
     /// Club headers with their courses beneath, in the order the store already
-    /// computed — the server's order, never re-sorted (B2.2).
+    /// computed — the server's order, or distance order once a position fix
+    /// landed (B2.2; `CreateStore.courseGroups`). A group that knows its
+    /// distance says so on the header ("Linköpings GK · 930 m"), the same
+    /// wording the web picker uses.
     static func courses(_ groups: [CreateStore.CourseGroup]) -> [TapDropdownGroup<String>] {
         groups.map { group in
             TapDropdownGroup(
                 id: group.clubId,
-                header: group.clubName,
+                header: group.distanceKm.map { "\(group.clubName) · \(CourseDistance.label(km: $0))" }
+                    ?? group.clubName,
                 rows: group.courses.map { TapDropdownRow(value: $0.id, title: $0.name) })
         }
     }

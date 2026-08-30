@@ -127,6 +127,16 @@ struct CreateRoundView: View {
                     // Seeded BEFORE the catalog lands so the field is never
                     // briefly empty under the user's thumb.
                     store.seedDefaultName(existing: existingRoundNames)
+                    // One coarse fix, never awaited by the form: the
+                    // permission prompt and the GPS cannot hold the catalog
+                    // up. Denied or unavailable resolves nil and the picker
+                    // keeps the server's order. Create only — an edit's
+                    // course is settled and must not be re-seeded.
+                    Task {
+                        if let fix = await CourseLocator().currentFix() {
+                            await store.applyPosition(fix)
+                        }
+                    }
                     await store.load()
                 // The hydrate REPLACES the starting roster, so the owner row
                 // above never survives into an edit — it is set purely so the

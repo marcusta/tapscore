@@ -30,13 +30,22 @@ enum CreateStubs {
      \(tee("tee-w", name: "White", colour: "white", genders: ["M"]))]
     """
 
-    static func course(_ id: String, club: String, name: String) -> String {
+    static func course(
+        _ id: String,
+        club: String,
+        name: String,
+        latitude: Double? = nil,
+        longitude: Double? = nil
+    ) -> String {
         let holes = (1...18)
             .map { "{\"holeNumber\":\($0),\"par\":4,\"strokeIndex\":\($0)}" }
             .joined(separator: ",")
+        let position = latitude.flatMap { lat in
+            longitude.map { ",\"latitude\":\(lat),\"longitude\":\($0)" }
+        } ?? ""
         return """
         {"id":"\(id)","clubId":"\(club)","clubName":"Club","name":"\(name)",
-         "holeCount":18,"holes":[\(holes)]}
+         "holeCount":18\(position),"holes":[\(holes)]}
         """
     }
 

@@ -67,6 +67,11 @@
 			</array>
 		</dict>
 	</array>
+	<!-- One coarse fix per create flow (CourseLocator): sorts the course list
+	     by distance and pre-selects the nearest course. Nothing is stored or
+	     sent anywhere. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Your location is used to sort the course list by distance and pre-select the nearest course when you set up a round.</string>
 	<!-- The dev server runs on http://localhost:3030. Allow local networking
 	     ONLY — do NOT widen this to NSAllowsArbitraryLoads. -->
 	<key>NSAppTransportSecurity</key>

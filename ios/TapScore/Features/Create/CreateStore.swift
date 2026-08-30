@@ -283,12 +283,18 @@ final class CreateStore {
     }
 
     /// One club's courses, in the order the server listed them. Spec §2.2
-    /// B2.1/B2.2: the client groups, it does not re-sort.
+    /// B2.1/B2.2: the client groups, it does not re-sort courses — with a
+    /// known position the GROUPS re-order by distance (`courseGroups()`), but
+    /// a club's own courses always keep the server's order.
     struct CourseGroup: Identifiable, Sendable, Equatable {
         var id: String { clubId }
         var clubId: String
         var clubName: String
         var courses: [SetupCourse]
+        /// The club's nearest course, in km — nil without a position fix or
+        /// when no course of the club carries coordinates. Worded onto the
+        /// group header by `CreatePickerRows`.
+        var distanceKm: Double?
     }
 
     // MARK: - Dependencies
@@ -317,6 +323,11 @@ final class CreateStore {
     // MARK: - Selections
 
     var step: Step = .course
+    /// The phone's one coarse position fix, when the flow got one. Orders the
+    /// club groups by distance and, while no course is picked, seeds the
+    /// nearest one. Fed by `applyPosition` — the store never touches
+    /// CoreLocation itself, so every test can hand it a fix directly.
+    private(set) var position: GeoPoint?
     /// What the organizer calls this round. The FIRST question of the flow,
     /// pre-filled with `DefaultRoundName` so the common case is "accept it and
     /// move on" — it is a LABEL for telling rounds apart in the list, never an
@@ -523,6 +534,9 @@ final class CreateStore {
             self.catalog = FormatCatalog(descriptors: try await formats)
             self.formations = FormationCatalog(descriptors: (try? await formations) ?? [])
             ensureDefaultGame()
+            // The fix and the catalog race (the view starts the locator
+            // before awaiting this load); whichever lands second seeds.
+            await seedNearestCourse()
         } catch {
             loadError = Self.message(for: error, fallback: "Couldn't load courses. Check the connection and try again.")
         }
@@ -560,13 +574,16 @@ final class CreateStore {
 
     // MARK: - Course step
 
-    /// The whole course list, grouped by club, **in the server's order**.
+    /// The whole course list, grouped by club — the server's order, until a
+    /// position fix lands.
     ///
-    /// `GET /setup/courses` already sorts `clubs.name ASC, courses.name ASC`
-    /// (spec §2.1), so the client's only job is to break that flat list at each
-    /// club boundary. Re-sorting here would mean two orderings to keep in step
-    /// and a client that silently disagrees with the server the day the server
-    /// changes its mind (B2.2).
+    /// `GET /setup/courses` sorts `clubs.name ASC, courses.name ASC` (spec
+    /// §2.1), and the client's first job is only to break that flat list at
+    /// each club boundary (B2.2). With a position, the GROUPS re-order by
+    /// their nearest course — the phone knows something the server does not —
+    /// while clubs without coordinates keep the server's order after them,
+    /// and a club's own courses are never reordered. Same rule as the web
+    /// picker (`orderByClubDistance`).
     func courseGroups() -> [CourseGroup] {
         var groups: [CourseGroup] = []
         for course in courses {
@@ -579,7 +596,22 @@ final class CreateStore {
                     courses: [course]))
             }
         }
-        return groups
+        guard let position else { return groups }
+        for index in groups.indices {
+            groups[index].distanceKm = groups[index].courses
+                .compactMap { CourseDistance.courseKm($0, from: position) }
+                .min()
+        }
+        // Positioned clubs by distance, the rest after in incoming order —
+        // sorted by (km, incoming index) because Swift's sort is not stable.
+        return groups.enumerated().sorted { a, b in
+            switch (a.element.distanceKm, b.element.distanceKm) {
+            case let (akm?, bkm?): akm < bkm
+            case (.some, nil): true
+            case (nil, .some): false
+            case (nil, nil): a.offset < b.offset
+            }
+        }.map(\.element)
     }
 
     /// The grouped list narrowed by the search box (spec §2.2 B2.4): a course
@@ -596,8 +628,29 @@ final class CreateStore {
             return hits.isEmpty ? nil : CourseGroup(
                 clubId: group.clubId,
                 clubName: group.clubName,
-                courses: hits)
+                courses: hits,
+                distanceKm: group.distanceKm)
         }
+    }
+
+    /// A position fix landed. The ordering picks it up on the next
+    /// `courseGroups()` read; the selection is seeded only while the flow has
+    /// no course yet — a course the user picked, and an edit session (whose
+    /// course is always set), are never moved by a late fix.
+    func applyPosition(_ fix: GeoPoint) async {
+        position = fix
+        await seedNearestCourse()
+    }
+
+    /// Pre-select the nearest course, when there is a fix, a catalog, and no
+    /// choice to respect. Selecting through `selectCourse` on purpose: the
+    /// seed behaves exactly like a tap — tees load, defaults land,
+    /// `courseStepComplete` flips — and stays exactly as revisable.
+    private func seedNearestCourse() async {
+        guard !isEditing, courseId == nil, let position,
+              let nearest = CourseDistance.nearest(courses, from: position)
+        else { return }
+        await selectCourse(nearest.id)
     }
 
     /// The course picker is being opened.
