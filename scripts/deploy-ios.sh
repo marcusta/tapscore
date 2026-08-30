@@ -55,14 +55,18 @@ fi
 echo "==> Deploying to device $UDID"
 
 echo "==> xcodebuild (Release)"
+APP="$DERIVED/Build/Products/Release-iphoneos/$SCHEME.app"
+# A failed build must never fall through to the install: the previous deploy's
+# .app still sits in $DERIVED, so remove it first and let pipefail carry
+# xcodebuild's exit status through the grep filter (BUILD SUCCEEDED/FAILED
+# always matches, so grep itself never fails the pipeline).
+rm -rf "$APP"
 xcodebuild -project ios/TapScore.xcodeproj -scheme "$SCHEME" \
     -configuration Release \
     -destination "id=$UDID" \
     -derivedDataPath "$DERIVED" \
     -allowProvisioningUpdates \
-    build | grep -E "error:|warning: .*deprecated|BUILD" || true
-
-APP="$DERIVED/Build/Products/Release-iphoneos/$SCHEME.app"
+    build 2>&1 | grep -E "error:|warning: .*deprecated|BUILD"
 if [ ! -d "$APP" ]; then
     echo "Build failed — $APP missing. Re-run without the grep filter for full output:" >&2
     echo "  xcodebuild -project ios/TapScore.xcodeproj -scheme $SCHEME -configuration Release -destination id=$UDID -derivedDataPath $DERIVED -allowProvisioningUpdates build" >&2
