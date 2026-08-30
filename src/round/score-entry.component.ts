@@ -303,14 +303,22 @@ export class ScoreEntryComponent extends Component {
             &.hidden { display: none; }
         }
 
-        /* The tap targets themselves, as one flat rule. The surface rules above
-           should already cover them through the ancestor chain; these do not
-           depend on that, and a flat single-declaration rule cannot be lost to
-           the nested-declaration parsing above either. */
-        .se-row__circle, .se-mrow, .se-key, .se-seg,
-        .se-modal__navbtn, .se-modal__close,
-        .se-pad__ext-step, .se-stats__step-btn,
-        .se-stats__next, .se-stats__back {
+        /* Every element on those surfaces, not just their roots.
+           MEASURED on iOS: with the rule on the container only, the +/- buttons
+           (which carry their own) stopped zooming while the label and the value
+           between them still did. Safari resolves double-tap zoom from the
+           element under the finger, not from its ancestor chain, so the rule
+           has to land on the descendants too.
+
+           The row list gets the same treatment (its score circle is a tap
+           target, the name and to-par beside it are not). The hole carousel is
+           left out on purpose: its own touch-action: pan-y already rules out
+           double-tap zoom, and widening this selector over it would put a
+           second declaration on the same elements. */
+        .se__rows, .se__rows *,
+        .se-modal, .se-modal *,
+        .se-stats, .se-stats *,
+        .se-hcp, .se-hcp * {
             touch-action: manipulation;
         }
 
