@@ -205,10 +205,12 @@ test('attach a match play round: prefilled teams, a suggested source, live then 
     board = await boardOf();
     expect(board.live).toBe(true);
     expect(board.teams).toEqual([
-        { teamId: red!.id, name: 'Red', colour: 'red', points: 0, decided: 0 },
-        { teamId: blue!.id, name: 'Blue', colour: 'blue', points: 1, decided: 0 },
+        { teamId: red!.id, name: 'Red', colour: 'red', points: 0, decided: 0, members: ['Anna'] },
+        { teamId: blue!.id, name: 'Blue', colour: 'blue', points: 1, decided: 0, members: ['Bo'] },
     ]);
     expect(JSON.stringify(board)).not.toContain(ROUND_TOKEN);
+    // The roster is names only: the open board carries no player ids.
+    expect(JSON.stringify(board)).not.toContain(owner.id);
 
     // Finish the round: the projection becomes decided.
     await ctx.friendlyRoundService.finishByToken(ROUND_TOKEN, '2026-09-18T15:00:00.000Z');

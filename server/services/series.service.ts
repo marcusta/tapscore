@@ -98,6 +98,9 @@ export interface SeriesBoardTeam {
     points: number;
     /** Points from finished contests only. */
     decided: number;
+    /** Roster, display names only. The board is an open read, so no player
+     *  ids ride along. */
+    members: string[];
 }
 
 export interface SeriesBoardSource {
@@ -962,6 +965,7 @@ export class SeriesService {
                     t.id,
                     allRows.filter((r) => !r.live),
                 ),
+                members: t.members.map((m) => m.displayName),
             })),
             sessions,
             live: allRows.some((r) => r.live),

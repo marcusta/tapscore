@@ -15,8 +15,8 @@ const board: SeriesBoardView = {
     name: 'Red v Blue',
     live: true,
     teams: [
-        { teamId: 'r', name: 'Red', colour: 'red', points: 1.5, decided: 0.5 },
-        { teamId: 'b', name: 'Blue <b>', colour: 'blue', points: 0.5, decided: 0.5 },
+        { teamId: 'r', name: 'Red', colour: 'red', points: 1.5, decided: 0.5, members: ['Rolf <i>', 'Rita'] },
+        { teamId: 'b', name: 'Blue <b>', colour: 'blue', points: 0.5, decided: 0.5, members: [] },
     ],
     sessions: [
         {
@@ -198,4 +198,21 @@ test('device series list dedupes by token and forgets', () => {
     expect(getDeviceSeries(storage).map((s) => s.name)).toEqual(['A2', 'B']);
     expect(forgetDeviceSeries('a', storage).map((s) => s.token)).toEqual(['b']);
     expect(getDeviceSeries(null)).toEqual([]);
+});
+
+test('the roster sits between the totals and the first session, names escaped', () => {
+    const html = renderBoard(board);
+    expect(html).toContain('<li>Rolf &lt;i&gt;</li>');
+    expect(html).toContain('<li>Rita</li>');
+    expect(html).toContain('No players yet.');
+    const totals = html.indexOf('sb-totals');
+    const roster = html.indexOf('sb-roster');
+    const session = html.indexOf('sb-session');
+    expect(totals).toBeLessThan(roster);
+    expect(roster).toBeLessThan(session);
+});
+
+test('a board with no members anywhere prints no roster', () => {
+    const html = renderBoard({ ...board, teams: board.teams.map((t) => ({ ...t, members: [] })) });
+    expect(html).not.toContain('sb-roster');
 });

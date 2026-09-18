@@ -56,6 +56,7 @@ export interface SeriesBoardTeam {
     colour: string;
     points: number;
     decided: number;
+    members: string[];
 }
 
 export interface SeriesBoardSession {

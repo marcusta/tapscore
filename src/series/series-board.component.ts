@@ -113,6 +113,22 @@ export class SeriesBoardComponent extends Component {
                 & .sb-team__sub { font-size: 0.75rem; color: ${t('text-muted')}; }
             }
             & .sb-note, & .sb-empty { color: ${t('text-muted')}; font-size: 0.85rem; margin: 0 0 ${s('md')}; }
+            & .sb-roster {
+                display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                gap: ${s('sm')};
+            }
+            & .sb-roster__team {
+                ${card()}
+                padding: ${s('sm')} ${s('md')};
+                border-left: 4px solid var(--team);
+                & h3 {
+                    margin: 0 0 ${s('xs')}; font-size: 0.75rem; font-weight: 700;
+                    text-transform: uppercase; letter-spacing: 0.06em; color: ${t('text-muted')};
+                }
+                & ul { margin: 0; padding: 0; list-style: none; }
+                & li { font-size: 0.95rem; padding: 2px 0; overflow-wrap: anywhere; }
+                & .sb-roster__none { margin: 0; font-size: 0.85rem; color: ${t('text-muted')}; }
+            }
             & .sb-session {
                 margin-top: ${s('xl')};
                 & h2 { margin: 0; font-size: 1.15rem; font-weight: 700; }

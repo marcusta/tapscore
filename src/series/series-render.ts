@@ -99,6 +99,21 @@ export function renderBoard(board: SeriesBoardView): string {
             </div>`,
         )
         .join('');
+    const roster = board.teams.some((t) => t.members.length > 0)
+        ? `<section class="sb-roster" aria-label="Teams">${board.teams
+              .map(
+                  (t) => `
+            <div class="sb-roster__team" style="--team:${teamHex(t.colour)}">
+                <h3>${esc(t.name)}</h3>
+                ${
+                    t.members.length === 0
+                        ? '<p class="sb-roster__none">No players yet.</p>'
+                        : `<ul>${t.members.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>`
+                }
+            </div>`,
+              )
+              .join('')}</section>`
+        : '';
     const sessions = board.sessions
         .map((session) => {
             const meta = [
@@ -125,6 +140,7 @@ export function renderBoard(board: SeriesBoardView): string {
     return `
         <div class="sb-totals">${totals}</div>
         ${board.live ? '<p class="sb-note">Live matches count as they stand. Totals can change.</p>' : ''}
+        ${roster}
         ${sessions || '<p class="sb-empty">No rounds yet.</p>'}`;
 }
 
