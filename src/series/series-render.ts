@@ -14,6 +14,7 @@ import type {
     SeriesRoundDetail,
     SeriesTeam,
     TeamPointsDescriptor,
+    TeamPointsRow,
     TeamPointsShare,
 } from '../api/series.gen';
 import { TEAM_COLOURS, teamHex } from './team-colours';
@@ -55,10 +56,37 @@ function shares(points: TeamPointsShare[], looks: Map<string, TeamLook>): string
         .join('');
 }
 
+/**
+ * A two-team row as a bar: side, standing, side. The side ahead fills with its
+ * team colour; the other prints its name in its own. Level fills neither.
+ */
+function versusHtml(row: TeamPointsRow, looks: Map<string, TeamLook>): string {
+    const v = row.versus!;
+    const side = (key: 'a' | 'b'): string => {
+        const s = v[key];
+        const lead = v.leader === key ? ' sb-vs__side--lead' : '';
+        return `<div class="sb-vs__side sb-vs__side--${key}${lead}" style="--team:${
+            looks.get(s.teamId)?.hex ?? '#6b7a6e'
+        }"><span class="sb-vs__name">${esc(s.name)}</span>${
+            s.figure ? `<b class="sb-vs__figure">${esc(s.figure)}</b>` : ''
+        }</div>`;
+    };
+    const state = row.live ? 'Live' : v.finished ? 'Final' : '';
+    return `<div class="sb-vs">${side('a')}
+        <div class="sb-vs__center">${
+            v.standing ? `<span class="sb-vs__standing">${esc(v.standing)}</span>` : ''
+        }${
+            state ? `<span class="sb-vs__state${row.live ? ' sb-vs__state--live' : ''}">${state}</span>` : ''
+        }</div>${side('b')}</div>`;
+}
+
 function sourceHtml(source: SeriesBoardSource, looks: Map<string, TeamLook>): string {
     const rows = source.rows
         .map((row) => {
-            const head = `
+            const head = row.versus
+                ? `${versusHtml(row, looks)}
+                <span class="sb-row__pts">${shares(row.points, looks)}</span>`
+                : `
                 <span class="sb-row__label">${esc(row.label || source.label)}</span>
                 <span class="sb-row__status">${esc(row.status)}${
                     row.live ? ' <em class="sb-live">Live</em>' : ''

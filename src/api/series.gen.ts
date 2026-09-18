@@ -131,12 +131,27 @@ export interface TeamPointsRow {
     live: boolean;
     points: TeamPointsShare[];
     detail: string;
+    versus?: TeamPointsVersus;
     problem?: string;
 }
 
 export interface TeamPointsShare {
     teamId: string;
     points: number;
+}
+
+export interface TeamPointsVersus {
+    a: TeamPointsVersusSide;
+    b: TeamPointsVersusSide;
+    leader: null | 'a' | 'b';
+    standing: string;
+    finished: boolean;
+}
+
+export interface TeamPointsVersusSide {
+    name: string;
+    teamId: string;
+    figure?: string;
 }
 
 export interface SeriesApi {

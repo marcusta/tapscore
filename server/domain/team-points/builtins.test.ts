@@ -116,6 +116,30 @@ describe('match rule', () => {
         expect(row!.detail).toBe('Blue wins: 1');
     });
 
+    test('a decided match carries both sides, their teams and the winner', () => {
+        const [row] = fold(slot([pair('lost', [-1, -1], '2 & 1')]));
+        expect(row!.versus).toEqual({
+            a: { name: 'Anna', teamId: 'red' },
+            b: { name: 'Bo', teamId: 'blue' },
+            leader: 'b',
+            standing: '2 & 1',
+            finished: true,
+        });
+    });
+
+    test('a live match is not finished; a halved one has no leader', () => {
+        const [live] = fold(slot([pair('in_progress', [-1, 0, -1, null], '2 DN thru 3')]));
+        expect(live!.versus).toMatchObject({ leader: 'b', finished: false });
+        const [halved] = fold(slot([pair('halved', [1, -1], 'AS')]));
+        expect(halved!.versus).toMatchObject({ leader: null, standing: 'Halved', finished: true });
+    });
+
+    test('a row with a problem carries no sides', () => {
+        const [row] = fold(slot([pair('won', [1], '1 UP')], { ballTeams: { anna: 'red' } }));
+        expect(row!.problem).toBeDefined();
+        expect(row!.versus).toBeUndefined();
+    });
+
     test('halved splits', () => {
         const [row] = fold(slot([pair('halved', [1, -1], 'AS')]));
         expect(row!.status).toBe('Halved');
@@ -234,6 +258,38 @@ describe('ranked rule', () => {
         ]);
         expect(row.status).toBe('Red 38 · Blue 41');
         expect(row.live).toBe(false);
+    });
+
+    test('two teams: the row carries both totals and the winner', () => {
+        const row = fold(ranked([total('a1', 'net', 41), total('b1', 'net', 38)]));
+        expect(row.versus).toEqual({
+            a: { name: 'Red', teamId: 'red', figure: '41' },
+            b: { name: 'Blue', teamId: 'blue', figure: '38' },
+            leader: 'b',
+            standing: '',
+            finished: true,
+        });
+    });
+
+    test('a tie has no leader; a live game says how far through', () => {
+        const tie = fold(ranked([total('a1', 'net', 40), total('b1', 'net', 40)]));
+        expect(tie.versus!.leader).toBeNull();
+        const live = fold(
+            ranked([total('a1', 'net', 12, 3), total('b1', 'net', 14, 3)], { roundComplete: false }),
+        );
+        expect(live.versus).toMatchObject({ leader: 'a', standing: 'thru 3', finished: false });
+    });
+
+    test('three teams get no two-sided data', () => {
+        const row = byShape('ranked').teamPoints({
+            slot: ranked([total('a1', 'net', 38), total('b1', 'net', 41), total('c1', 'net', 40)], {
+                ballTeams: { a1: 'red', b1: 'blue', c1: 'green' },
+            }),
+            teams: [...TEAMS, { teamId: 'green', name: 'Green' }],
+            config: { points: 1, count: 1 },
+        })[0]!;
+        expect(row.points).toHaveLength(3);
+        expect(row.versus).toBeUndefined();
     });
 
     test('higher points win', () => {

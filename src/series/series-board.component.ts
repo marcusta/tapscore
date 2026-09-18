@@ -155,6 +155,28 @@ export class SeriesBoardComponent extends Component {
             & .sb-row__label { font-weight: 600; }
             & .sb-row__status { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
             & .sb-row__pts { grid-column: 1 / -1; display: flex; gap: ${s('md')}; flex-wrap: wrap; font-size: 0.8rem; color: ${t('text-muted')}; }
+            & .sb-vs {
+                grid-column: 1 / -1;
+                display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch;
+                border: 1px solid ${t('border')}; border-radius: 10px; overflow: hidden;
+                margin-bottom: ${s('xs')};
+            }
+            & .sb-vs__side {
+                padding: ${s('sm')} ${s('md')}; font-weight: 700; font-size: 0.9rem;
+                display: flex; align-items: center; gap: ${s('sm')}; min-width: 0;
+                color: var(--team);
+            }
+            & .sb-vs__side--b { flex-direction: row-reverse; text-align: right; }
+            & .sb-vs__side--lead { background: var(--team); color: #fff; }
+            & .sb-vs__name { overflow-wrap: anywhere; }
+            & .sb-vs__figure { font-size: 1.25rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+            & .sb-vs__center {
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                padding: ${s('xs')} ${s('sm')}; gap: 1px; text-align: center;
+            }
+            & .sb-vs__standing { font-size: 1.1rem; font-weight: 800; line-height: 1.05; white-space: nowrap; }
+            & .sb-vs__state { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em; color: ${t('text-muted')}; }
+            & .sb-vs__state--live { color: ${t('accent')}; font-weight: 700; letter-spacing: 0.08em; }
             & .sb-share {
                 display: inline-flex; align-items: center; gap: 4px;
                 & i { width: 8px; height: 8px; border-radius: 50%; background: var(--team); }

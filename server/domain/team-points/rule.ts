@@ -57,6 +57,31 @@ export interface TeamPointsShare {
     points: number;
 }
 
+/** One side of a two-sided row: who it is, and the team it plays for. */
+export interface TeamPointsVersusSide {
+    /** Display name only: a player, a pairing, or the team itself. */
+    name: string;
+    teamId: string;
+    /** The side's own total when the row ranks totals: "70". */
+    figure?: string;
+}
+
+/**
+ * A row that is a contest between exactly two teams, as structured data, so
+ * the board can draw it as a bar in the two team colours. `label` and `status`
+ * still carry the same facts as text.
+ */
+export interface TeamPointsVersus {
+    a: TeamPointsVersusSide;
+    b: TeamPointsVersusSide;
+    /** The side ahead or the winner. Null when level, halved or not started. */
+    leader: 'a' | 'b' | null;
+    /** Centre text in golf idiom: "1 UP", "2 UP thru 5", "thru 4", or empty. */
+    standing: string;
+    /** True once the contest is decided. */
+    finished: boolean;
+}
+
 export interface TeamPointsRow {
     /** What is being decided: "Anna v Bo", "Longest drive". */
     label: string;
@@ -68,6 +93,8 @@ export interface TeamPointsRow {
     points: TeamPointsShare[];
     /** Auditable arithmetic / reasoning, one line. */
     detail: string;
+    /** Present when the row is a contest between exactly two teams. */
+    versus?: TeamPointsVersus;
     /**
      * Set when the row could not be attributed (a ball with no team, a side
      * whose balls sit on two teams). The row then carries no points — a visible

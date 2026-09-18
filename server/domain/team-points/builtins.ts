@@ -16,6 +16,7 @@ import {
     type TeamPointsRow,
     type TeamPointsRule,
     type TeamPointsSlotInput,
+    type TeamPointsVersus,
 } from './rule';
 
 export const MATCH_WIN_HALF = 'match_win_half';
@@ -104,13 +105,25 @@ function matchRow(
 
     const live = pair.result === 'in_progress' && !slot.roundComplete;
     const started = pair.holes.some((h) => h.status !== null);
+    const sides = {
+        a: { name: sideLabel(pair.sideA, slot), teamId: a.teamId },
+        b: { name: sideLabel(pair.sideB, slot), teamId: b.teamId },
+    };
     if (pair.result === 'in_progress' && !started) {
-        return { label, status: 'Not started', live: false, points: [], detail: '' };
+        return {
+            label,
+            status: 'Not started',
+            live: false,
+            points: [],
+            detail: '',
+            versus: { ...sides, leader: null, standing: 'Not started', finished: false },
+        };
     }
 
     const leader = leaderOf(pair);
     const halved = leader === null;
     const status = pair.result === 'halved' ? 'Halved' : pair.summary;
+    const versus: TeamPointsVersus = { ...sides, leader, standing: status, finished: !live };
     if (halved) {
         return {
             label,
@@ -121,6 +134,7 @@ function matchRow(
                 { teamId: b.teamId, points: cfg.half },
             ],
             detail: `${live ? 'Level' : 'Halved'}: ${fmt(cfg.half)} each`,
+            versus,
         };
     }
     const winner = leader === 'a' ? a.teamId : b.teamId;
@@ -134,6 +148,7 @@ function matchRow(
             { teamId: loser, points: 0 },
         ],
         detail: `${teamName(winner)} ${live ? 'leads' : 'wins'}: ${fmt(cfg.win)}`,
+        versus,
     };
 }
 
@@ -274,6 +289,18 @@ function rankedRow(
     const status = sums.map((x) => `${name(x.teamId)} ${fmt(x.sum)}`).join(' · ');
     const thru = live ? ` thru ${[...through][0]}` : '';
     const who = winners.map((w) => name(w.teamId)).join(' and ');
+    // A bar has two halves, so only a two-team game gets one.
+    const [first, second] = sums;
+    const versus: TeamPointsVersus | undefined =
+        sums.length === 2 && first && second
+            ? {
+                  a: { name: name(first.teamId), teamId: first.teamId, figure: fmt(first.sum) },
+                  b: { name: name(second.teamId), teamId: second.teamId, figure: fmt(second.sum) },
+                  leader: winners.length > 1 ? null : first.sum === best ? 'a' : 'b',
+                  standing: live ? `thru ${[...through][0]}` : '',
+                  finished: !live,
+              }
+            : undefined;
     return {
         label: '',
         status: `${status}${thru}`,
@@ -283,6 +310,7 @@ function rankedRow(
             winners.length > 1
                 ? `${who} ${live ? 'are level' : 'tie'}: ${fmt(share)} each`
                 : `${who} ${live ? 'leads' : 'wins'}: ${fmt(cfg.points)}`,
+        ...(versus ? { versus } : {}),
     };
 }
 

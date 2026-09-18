@@ -76,6 +76,54 @@ test('renderBoard prints totals, the live note, rows and problems, and escapes n
     expect(html).toContain('In play');
 });
 
+test('a two-team row draws as a bar: the leader fills with its team colour', () => {
+    const source = board.sessions[0]!.sources[0]!;
+    const withBar: SeriesBoardView = {
+        ...board,
+        sessions: [
+            {
+                ...board.sessions[0]!,
+                sources: [
+                    {
+                        ...source,
+                        rows: [
+                            {
+                                ...source.rows[0]!,
+                                live: false,
+                                versus: {
+                                    a: { name: 'Anna <i>', teamId: 'r' },
+                                    b: { name: 'Bo', teamId: 'b', figure: '71' },
+                                    leader: 'b',
+                                    standing: '1 UP',
+                                    finished: true,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    };
+    const html = renderBoard(withBar);
+    expect(html).toMatch(/sb-vs__side--b sb-vs__side--lead/);
+    expect(html).not.toMatch(/sb-vs__side--a sb-vs__side--lead/);
+    expect(html).toContain('Anna &lt;i&gt;');
+    expect(html).toContain('>71<');
+    expect(html).toContain('>1 UP<');
+    expect(html).toContain('>Final<');
+    // The points line and the arithmetic stay under the bar.
+    expect(html).toContain('sb-row__pts');
+    expect(html).toContain('Red leads: 1');
+    // The flat label is replaced, not repeated.
+    expect(html).not.toContain('Anna v Bo');
+});
+
+test('a row without two-sided data keeps the flat layout', () => {
+    const html = renderBoard(board);
+    expect(html).toContain('Anna v Bo');
+    expect(html).not.toContain('sb-vs__side');
+});
+
 test('a settled board carries no live note and no decided line', () => {
     const html = renderBoard({ ...board, live: false });
     expect(html).not.toContain('decided');
