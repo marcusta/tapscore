@@ -5,6 +5,7 @@ import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { SetupService, type FormatSlotForm, type RoutePreset } from './setup.service';
+import { bound } from './bound';
 import { clubDistanceKm, distanceLabel } from './course-distance';
 import type { FormatConfigField } from '../api/setup.gen';
 import { parseHandicapIndex } from './hcp-input';
@@ -1189,7 +1190,7 @@ export class CreateComponent extends Component {
         // <select>). Top-level, so they track at component scope.
         const compTrack = (d: () => void) => this.track(d);
         this.mountSelect(this.ref(frag, 'course'), compTrack, {
-            value: this.bound(
+            value: bound(
                 compTrack,
                 () => this.svc.courseId.get(),
                 (v) => {
@@ -1226,7 +1227,7 @@ export class CreateComponent extends Component {
             disabled: { get: () => competitionEdit() },
         });
         this.mountSelect(this.ref(frag, 'startHole'), compTrack, {
-            value: this.bound(
+            value: bound(
                 compTrack,
                 () => String(this.svc.startHole.get()),
                 (v) => this.svc.startHole.set(Number(v)),
@@ -1236,7 +1237,7 @@ export class CreateComponent extends Component {
         });
         const teeOptions = () => this.svc.tees.get().map((tee) => ({ value: tee.id, label: tee.name }));
         this.mountSelect(this.ref(frag, 'maleDefaultTee'), compTrack, {
-            value: this.bound(
+            value: bound(
                 compTrack,
                 () => this.svc.defaultTeeId('M'),
                 (value) => this.svc.setRoundDefaultTee('M', value),
@@ -1245,7 +1246,7 @@ export class CreateComponent extends Component {
             placeholder: 'Choose tee',
         });
         this.mountSelect(this.ref(frag, 'femaleDefaultTee'), compTrack, {
-            value: this.bound(
+            value: bound(
                 compTrack,
                 () => this.svc.defaultTeeId('F'),
                 (value) => this.svc.setRoundDefaultTee('F', value),
@@ -1411,30 +1412,6 @@ export class CreateComponent extends Component {
         const child = new SelectComponent(props);
         child.mount(host);
         track(() => child.destroy());
-    }
-
-    /**
-     * A `Signal<string>` two-way bridged to service state, for `SelectComponent`
-     * (which owns a value signal, not a change callback). `read` is tracked so
-     * service→signal stays reactive; the signal→service `write` is deferred to a
-     * microtask so its own service reads aren't tracked — otherwise the effect
-     * would re-subscribe to those signals and loop. `Signal.set`'s Object.is
-     * dedupe keeps both directions from ping-ponging.
-     */
-    private bound(
-        track: (d: () => void) => void,
-        read: () => string,
-        write: (v: string) => void,
-    ): Signal<string> {
-        const sig = new Signal(read());
-        track(effect(() => sig.set(read())));
-        track(
-            effect(() => {
-                const v = sig.get();
-                queueMicrotask(() => write(v));
-            }),
-        );
-        return sig;
     }
 
     /**
@@ -1667,7 +1644,7 @@ export class CreateComponent extends Component {
         );
 
         this.mountSelect(this.ref(el, 'format'), track, {
-            value: this.bound(
+            value: bound(
                 track,
                 () => formatId(),
                 (v) => {
@@ -1924,7 +1901,7 @@ export class CreateComponent extends Component {
         );
         // Start hole: the route's holes, '' = the route's first hole.
         this.mountSelect(this.ref(el, 'hole'), track, {
-            value: this.bound(
+            value: bound(
                 track,
                 () => {
                     const h = this.svc.groupByKey(key)?.startHole;
@@ -2007,7 +1984,7 @@ export class CreateComponent extends Component {
         );
         // "Plays as" — single combined ball (composition) vs separate balls (side).
         this.mountSelect(this.ref(el, 'kindSel'), track, {
-            value: this.bound(
+            value: bound(
                 track,
                 () => this.svc.teamKindOf(key),
                 (v) => this.svc.setTeamKind(key, v === 'multi_ball' ? 'multi_ball' : 'single_ball'),
@@ -2020,7 +1997,7 @@ export class CreateComponent extends Component {
             },
         });
         this.mountSelect(this.ref(el, 'formation'), track, {
-            value: this.bound(
+            value: bound(
                 track,
                 () => this.svc.teamByKey(key)?.formation ?? 'scramble',
                 (v) => this.svc.setTeamFormation(key, v),
@@ -2304,7 +2281,7 @@ export class CreateComponent extends Component {
         );
 
         this.mountSelect(this.ref(el, 'gender'), track, {
-            value: this.bound(
+            value: bound(
                 track,
                 () => current()?.gender ?? 'M',
                 (v) => this.svc.patchPlayer(key, { gender: v as 'M' | 'F' }),
@@ -2316,7 +2293,7 @@ export class CreateComponent extends Component {
             disabled: { get: () => current()?.genderKnown === true },
         });
         this.mountSelect(this.ref(el, 'tee'), track, {
-            value: this.bound(
+            value: bound(
                 track,
                 () => current()?.teeId ?? '',
                 (v) => this.svc.setPlayerTee(key, v),

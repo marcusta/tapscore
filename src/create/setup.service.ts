@@ -885,6 +885,10 @@ export class SetupService {
     }
 
     setPlayerTee(key: number, teeId: string): void {
+        // The row select binds through this setter too, and echoes every
+        // service-side change back. Only a DIFFERENT tee is a golfer's choice;
+        // an echo must not pin the row against later round-default changes.
+        if (this.players.get().find((p) => p.key === key)?.teeId === teeId) return;
         this.patchPlayer(key, { teeId, teeOverridden: true });
     }
 
