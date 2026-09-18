@@ -27,7 +27,7 @@ export interface Round {
     windowStart: null | string;
     windowEnd: null | string;
     selfOrganize: boolean;
-    status: 'active' | 'not_started' | 'complete';
+    status: 'not_started' | 'active' | 'complete';
     latestEventId: null | string;
     name: null | string;
     visibility: 'private' | 'friends' | 'link';
@@ -126,7 +126,7 @@ export interface FriendsActivityEntry {
     name: null | string;
     courseName: null | string;
     date: string;
-    status: 'active' | 'not_started' | 'complete';
+    status: 'not_started' | 'active' | 'complete';
     holeCount: number;
     lastActivityAt: null | string;
     formatIds?: string[];

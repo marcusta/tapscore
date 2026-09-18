@@ -27,6 +27,7 @@ import {
     RouteHandicapPolicy,
     RouteSection,
     RouteSiInput,
+    SlotSideAggregation,
 } from '../round-definition';
 import { StartListPolicy } from './start-list-policy';
 
@@ -150,6 +151,11 @@ export const DraftFormatSelection = Type.Object({
     teams: Type.Optional(Type.Array(DraftTeam)),
     /** Opaque per-format config (handicapMode, birdieRule, …). */
     formatConfig: Type.Optional(Type.Unknown()),
+    /**
+     * How a multi-ball team (a side) among `subjects` folds into one subject
+     * (ADR-0004). Absent ⇒ `best_net`. Ignored when no subject is a side.
+     */
+    sideAggregation: Type.Optional(SlotSideAggregation),
     /**
      * Score the balls produced by another selection — the `id` of a team
      * composition (scramble/greensomes/foursomes) — instead of creating

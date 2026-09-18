@@ -31,6 +31,8 @@ const EXPECTED_FIXTURE_SIGNATURES = [
     'full_18|stableford:better_ball:split[9:100,*:75]',
     // --- ADR-0004: köpenhamnare over three 2-player sides (front 9) ---
     'front_9|kopenhamnare:individual:100',
+    // --- best 2 of 3: stroke play over two 3-player teams, 0% allowance ---
+    'front_9|stroke_play:individual:0',
 ] as const;
 
 function removeDbFiles(dbPath: string): void {

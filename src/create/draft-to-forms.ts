@@ -78,6 +78,9 @@ export interface StoredFormat {
     producerDefIds?: string[];
     subjects?: StoredBallSubject[];
     formatConfig?: unknown;
+    sideAggregation?:
+        | { type: 'best_net' }
+        | { type: 'best_n_sum'; count: number; basis: 'gross' | 'net' };
 }
 
 export interface StoredPlayingGroup {
@@ -343,6 +346,7 @@ export function draftToForms(
             key: slotKey++,
             formatId: f.formatId,
             allowancePct: allowancePctText(f.allowanceConfig),
+            ...(f.sideAggregation?.type === 'best_n_sum' ? { sideCount: f.sideAggregation.count } : {}),
             subjectPlayers,
             subjectTeams,
             config: configOf(f.formatConfig),

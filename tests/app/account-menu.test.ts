@@ -84,3 +84,12 @@ test('initials: first + last word, single word, username fallback, placeholder',
     expect(accountInitials('   ', 'marcus')).toBe('M');
     expect(accountInitials('   ', null)).toBe('•');
 });
+
+test('team events row follows the build flag and sits after Profile', () => {
+    expect(accountMenuKinds({ ...signedIn, teamEvents: true }).slice(0, 3)).toEqual([
+        'identity',
+        'profile',
+        'team-events',
+    ]);
+    expect(accountMenuKinds(signedIn)).not.toContain('team-events');
+});

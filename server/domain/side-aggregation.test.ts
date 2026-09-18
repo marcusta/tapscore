@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from 'bun:test';
 import { aggregateSlotSubjects, virtualSideBallId } from './side-aggregation';
+import type { SlotSideAggregation } from './round-definition';
 import { createRoundContext } from './strategies/round-context';
 import type {
     PlayHoleSnapshot,
@@ -82,9 +83,14 @@ function score(ballId: string, hole: number, strokes: number | null): ScoreEvent
     };
 }
 
-function synth(events: StrategyEvent[], slotBalls: SlotBall[], sides: { teamLabel: string; ballIds: string[] }[]) {
+function synth(
+    events: StrategyEvent[],
+    slotBalls: SlotBall[],
+    sides: { teamLabel: string; ballIds: string[] }[],
+    aggregation: SlotSideAggregation = { type: 'best_net' },
+) {
     return aggregateSlotSubjects({
-        aggregation: { type: 'best_net' },
+        aggregation,
         slotDefId: 'slot-0',
         slotBalls,
         slotTeamGroupings: sides,
@@ -165,5 +171,63 @@ describe('side aggregation (ADR-0004)', () => {
         expect(virtualSideBallId('slot-0', 'S')).toBe(virtualSideBallId('slot-0', 'S'));
         expect(virtualSideBallId('slot-0', 'S')).not.toBe(virtualSideBallId('slot-1', 'S'));
         expect(virtualSideBallId('slot-0', 'S')).not.toBe(virtualSideBallId('slot-0', 'T'));
+    });
+
+    describe('best_n_sum', () => {
+        const three = [ball('ba', 'pa', 3), ball('bb', 'pb'), ball('bc', 'pc')];
+        const side = [{ teamLabel: 'S', ballIds: ['ba', 'bb', 'bc'] }];
+        const hole = (out: ReturnType<typeof synth>) =>
+            strokesByHole(out.syntheticEvents, out.virtualSubjects[0]!.ballId);
+
+        it('sums the two lowest gross of three and ignores handicap strokes', () => {
+            const out = synth(
+                [score('ba', 1, 6), score('bb', 1, 4), score('bc', 1, 5)],
+                three,
+                side,
+                { type: 'best_n_sum', count: 2, basis: 'gross' },
+            );
+            expect(hole(out).get('ph-1')).toBe(9); // 4 + 5, pa's stroke not applied
+        });
+
+        it('nets each member off their own PH on the net basis', () => {
+            // pa PH 3 on a 3-cycle → 1 stroke every hole: gross 5 nets 4.
+            const out = synth(
+                [score('ba', 1, 5), score('bb', 1, 4), score('bc', 1, 6)],
+                three,
+                side,
+                { type: 'best_n_sum', count: 2, basis: 'net' },
+            );
+            expect(hole(out).get('ph-1')).toBe(8); // 4 (pa net) + 4
+        });
+
+        it('drops a pickup and still counts two of the remaining balls', () => {
+            const out = synth(
+                [score('ba', 1, 0), score('bb', 1, 4), score('bc', 1, 7)],
+                three,
+                side,
+                { type: 'best_n_sum', count: 2, basis: 'gross' },
+            );
+            expect(hole(out).get('ph-1')).toBe(11);
+        });
+
+        it('synthesizes a null, never a partial sum, when fewer than count balls have a value', () => {
+            const out = synth(
+                [score('ba', 1, 0), score('bb', 1, 4), score('bc', 1, null), score('bb', 2, 4)],
+                three,
+                side,
+                { type: 'best_n_sum', count: 2, basis: 'gross' },
+            );
+            const byHole = hole(out);
+            expect(byHole.get('ph-1')).toBeNull();
+            expect(byHole.get('ph-2')).toBeNull(); // one ball in so far
+            expect(byHole.has('ph-3')).toBe(false);
+        });
+
+        it('count 1 on net equals best_net', () => {
+            const events = [score('ba', 1, 5), score('bb', 1, 5), score('bc', 1, 6)];
+            const a = synth(events, three, side, { type: 'best_n_sum', count: 1, basis: 'net' });
+            const b = synth(events, three, side);
+            expect(a.syntheticEvents).toEqual(b.syntheticEvents);
+        });
     });
 });

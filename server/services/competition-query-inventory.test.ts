@@ -12,6 +12,7 @@ const FILES = [
     // rule — keeping one enforcement mechanism beats a second copy of it.
     'player-stats.service.ts',
     'friend-profile.service.ts',
+    'series.service.ts',
 ] as const;
 
 const TABLE_OPERATION = /\.(?:selectFrom|insertInto|updateTable|deleteFrom)\s*\(/g;

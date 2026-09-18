@@ -46,6 +46,8 @@ import {
     avatarBadgeMarkup,
 } from '../app/avatar-badge';
 import { formatLabelFromId } from '../round/slot-labels';
+import { features } from '../features';
+import { SeriesHomeComponent } from '../series/series-home.component';
 
 // Order (home redesign, spec item 12 / W4): who you are, what was handed to
 // you, what you are playing, who else is out, what you just played, what your
@@ -103,6 +105,8 @@ const tpl = template(`
              the round you are playing, and the ones you have played are a
              glance and a door. Its compact rows use the same overflow action
              as every other personal round row. -->
+        <div bind="seriesHost"></div>
+
         <div bind="finishedSection" class="landing__section-block landing__finished">
             <div class="landing__section landing__finished-head">
                 <span class="landing__section-title">Recently finished</span>
@@ -1145,6 +1149,8 @@ export class LandingComponent extends Component {
             // would keep last fold's numbers on screen after a refresh.
             (tile) => `${tile.id}:${tile.value}`,
         );
+
+        if (features.series) this.spawn(SeriesHomeComponent, this.ref(frag, 'seriesHost'));
 
         this.spawn(ConfirmComponent, this.ref(frag, 'confirmHost'), {
             open: this.deleteOpen,

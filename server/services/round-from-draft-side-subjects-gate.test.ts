@@ -424,3 +424,81 @@ test('match play (individual) over two sides compiles and scores head-to-head te
     expect(match.matches[0]!.leader).toBeNull(); // all square after 2
     expect(slot.subjectLabels).toHaveLength(2);
 });
+
+// ---------------------------------------------------------------------------
+// best_n_sum: two sides of three, stroke play, two scores counted per hole.
+// ---------------------------------------------------------------------------
+
+function twoSidesOfThreeDraft(ctx: Ctx, formatId: string): RoundSetupDraft {
+    const side = (id: string, label: string, members: string[]) => ({
+        id,
+        label,
+        kind: 'multi_ball' as const,
+        members: members.map((producerDefId) => ({ producerDefId, allowancePct: 100 })),
+    });
+    return {
+        courseId: ctx.courseId,
+        playedAt: '2026-09-19',
+        roundType: 'front_9',
+        producers: ctx.producers,
+        teams: [side('R', 'Red', ['p1', 'p2', 'p3']), side('B', 'Blue', ['p4', 'p5', 'p6'])],
+        formats: [
+            {
+                formatId,
+                // 0% allowance: net equals gross, so the net basis counts gross.
+                allowanceConfig: { type: 'flat', pct: 0 },
+                subjects: [
+                    { kind: 'team', teamId: 'R' },
+                    { kind: 'team', teamId: 'B' },
+                ],
+                sideAggregation: { type: 'best_n_sum', count: 2, basis: 'net' },
+            },
+        ],
+    };
+}
+
+test('best 2 of 3: a stroke play side total is the sum of its two lowest scores on every hole (hand oracle)', async () => {
+    // Handicaps are set so a leak of strokes into the sum would change it.
+    const ctx = await setup(6, [18, 18, 18, 0, 0, 0]);
+    const created = await ctx.roundService.createFromDraft(twoSidesOfThreeDraft(ctx, 'stroke_play_individual'));
+    if (!created.ok) throw new Error(JSON.stringify(created.diagnostics));
+
+    const def = (await ctx.roundService.latestDefinition(created.round.id))!.definition;
+    expect(def.slots[0]!.sideAggregation).toEqual({ type: 'best_n_sum', count: 2, basis: 'net' });
+
+    const occ = created.round.playHoles.map((p) => p.id);
+    expect(occ).toHaveLength(9);
+    //        h1 h2 h3 h4 h5 h6 h7 h8 h9
+    // Red    4+5 3+4 4+4 5+5 4+6 3+3 4+5 5+5 4+4   (the 7s and the pickup drop)
+    //        = 9  7  8  10 10  6  9  10  8  = 77
+    // Blue   every hole 4+4 = 8                   = 72
+    await scoreByName(ctx, created.round.id, occ, {
+        P1: [4, 3, 4, 5, 4, 3, 4, 5, 4],
+        P2: [5, 4, 7, 5, 7, 3, 5, 7, 4],
+        P3: [7, 7, 4, 7, 6, 0, 7, 5, 7],
+        P4: [4, 4, 4, 4, 4, 4, 4, 4, 4],
+        P5: [4, 4, 4, 4, 4, 4, 4, 4, 4],
+        P6: [6, 6, 6, 6, 6, 6, 6, 6, 6],
+    });
+
+    const [scored] = await ctx.leaderboardService.scoredSlotsForRound(created.round.id);
+    const labelOf = new Map(scored!.virtualSubjects.map((v) => [v.ballId, v.label]));
+    const grossByLabel = new Map(
+        scored!.result.ballResults.map((b) => [
+            labelOf.get(b.ballId),
+            b.totals.find((t) => t.scoringType === 'gross')?.value,
+        ]),
+    );
+    expect(grossByLabel.get('Red')).toBe(77);
+    expect(grossByLabel.get('Blue')).toBe(72);
+    const red = scored!.result.ballResults.find((b) => labelOf.get(b.ballId) === 'Red')!;
+    expect(red.holes.map((h) => h.gross)).toEqual([9, 7, 8, 10, 10, 6, 9, 10, 8]);
+});
+
+test('best 2 of 3 is refused on a points format: a sum of strokes is not one score', async () => {
+    const ctx = await setup(6);
+    const created = await ctx.roundService.createFromDraft(twoSidesOfThreeDraft(ctx, 'stableford_individual'));
+    expect(created.ok).toBe(false);
+    if (created.ok) return;
+    expect(created.diagnostics.map((d) => d.code)).toContain('side_sum_needs_stroke_play_format');
+});

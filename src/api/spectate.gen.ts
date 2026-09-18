@@ -5,7 +5,7 @@ export interface SpectateView {
     round: Round;
     result: RoundResult;
     cursor: null | string;
-    status: 'active' | 'not_started' | 'complete';
+    status: 'not_started' | 'active' | 'complete';
 }
 
 export interface Round {
@@ -18,7 +18,7 @@ export interface Round {
     windowStart: null | string;
     windowEnd: null | string;
     selfOrganize: boolean;
-    status: 'active' | 'not_started' | 'complete';
+    status: 'not_started' | 'active' | 'complete';
     latestEventId: null | string;
     name: null | string;
     visibility: 'private' | 'friends' | 'link';
@@ -168,7 +168,7 @@ export interface GridRow {
     subjectBallId?: string;
     kind: 'par' | 'si' | 'given' | 'gross' | 'net' | 'points' | 'running' | 'status' | 'category' | 'free';
     cells: GridCell[];
-    aggregate: 'sum' | 'last' | 'none';
+    aggregate: 'none' | 'sum' | 'last';
     emphasis?: boolean;
     team?: 'a' | 'b';
 }

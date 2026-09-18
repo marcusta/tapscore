@@ -4,7 +4,7 @@ import { SelectComponent, type SelectOption } from '@basics/core/client/ui/selec
 import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
-import { SetupService, type RoutePreset } from './setup.service';
+import { SetupService, type FormatSlotForm, type RoutePreset } from './setup.service';
 import { clubDistanceKm, distanceLabel } from './course-distance';
 import type { FormatConfigField } from '../api/setup.gen';
 import { parseHandicapIndex } from './hcp-input';
@@ -194,6 +194,7 @@ const fslotTpl = template(`
         </div>
 
         <div bind="configFields" class="fslot__configs"></div>
+        <div bind="sideCount" class="fslot__configs"></div>
 
         <div class="fslot__group">
             <span class="fslot__label">Scores</span>
@@ -313,6 +314,7 @@ const gamePanelTpl = template(`
         </div>
 
         <div bind="configFields" class="fslot__configs"></div>
+        <div bind="sideCount" class="fslot__configs"></div>
 
         <div bind="ballGroup" class="fslot__group">
             <span class="fslot__label">Who plays which ball</span>
@@ -1584,6 +1586,7 @@ export class CreateComponent extends Component {
                 this.configField(() => slot()?.key ?? null, field, fieldTrack),
             (field) => `${formatId()}:${field.key}`,
         );
+        this.sideCountInto(this.ref(el, 'sideCount'), slot, track);
 
         this.eachInto(
             this.ref(el, 'ballRows'),
@@ -1691,6 +1694,11 @@ export class CreateComponent extends Component {
             (field, _i, fieldTrack) => this.configField(() => key, field, fieldTrack),
             (field) => `${formatId()}:${field.key}`,
         );
+        this.sideCountInto(
+            this.ref(el, 'sideCount'),
+            () => this.svc.formatSlots.get().find((f) => f.key === key),
+            track,
+        );
 
         // Subject checklist — what this format can score. A SIDE format
         // (better-ball) scores multi-ball (side) teams only; a BALL format
@@ -1786,6 +1794,72 @@ export class CreateComponent extends Component {
             (option) => option.value,
         );
         return el;
+    }
+
+    /**
+     * "Scores counted per team": how many of a team's scores count on each
+     * hole. Drawn only while the slot scores a team of separate balls, in the
+     * same row a declared knob uses. It is not a format knob: the count is side
+     * aggregation, which the engine applies before any format sees a score.
+     */
+    private sideCountInto(
+        host: HTMLElement,
+        slot: () => FormatSlotForm | null | undefined,
+        track: (d: () => void) => void,
+    ): void {
+        const options = (): number[] => {
+            const s = slot();
+            return s ? this.svc.slotSideCountOptions(s) : [];
+        };
+        this.eachInto(
+            host,
+            track,
+            () => (options().length > 0 ? ['count'] : []),
+            (_row, _i, rowTrack) => {
+                const el = this.wireEl(
+                    configFieldTpl,
+                    {
+                        label: { textContent: 'Scores counted per team' },
+                        hint: {
+                            textContent: () => {
+                                const s = slot();
+                                const n = s ? this.svc.slotSideCount(s) : 1;
+                                return n === 1
+                                    ? "Each hole counts the team's best score."
+                                    : `Each hole counts the sum of the team's ${n} best scores. A team with fewer scores has no result on that hole.`;
+                            },
+                        },
+                    },
+                    rowTrack,
+                );
+                this.eachInto(
+                    this.ref(el, 'options'),
+                    rowTrack,
+                    options,
+                    (n, _j, optionTrack) =>
+                        this.wireEl(
+                            configOptionTpl,
+                            {
+                                opt: {
+                                    textContent: String(n),
+                                    className: () => {
+                                        const s = slot();
+                                        return s && this.svc.slotSideCount(s) === n ? 'on' : '';
+                                    },
+                                    onclick: () => {
+                                        const s = slot();
+                                        if (s) this.svc.setSlotSideCount(s.key, n);
+                                    },
+                                },
+                            },
+                            optionTrack,
+                        ),
+                    (n) => String(n),
+                );
+                return el;
+            },
+            (row) => row,
+        );
     }
 
     private subjectRow(

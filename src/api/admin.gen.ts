@@ -24,7 +24,7 @@ export interface AdminRoundSummary {
     roundId: string;
     shareToken: null | string;
     date: string;
-    status: 'active' | 'not_started' | 'complete';
+    status: 'not_started' | 'active' | 'complete';
     visibility: 'private' | 'friends' | 'link';
     courseName: null | string;
     createdAt: string;

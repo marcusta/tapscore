@@ -62,6 +62,13 @@ export interface Database {
     competition_participants: CompetitionParticipantsTable;
     competition_results: CompetitionResultsTable;
     competition_audit_events: CompetitionAuditEventsTable;
+    series: SeriesTable;
+    teams: TeamsTable;
+    series_teams: SeriesTeamsTable;
+    team_members: TeamMembersTable;
+    series_rounds: SeriesRoundsTable;
+    series_round_ball_teams: SeriesRoundBallTeamsTable;
+    series_point_sources: SeriesPointSourcesTable;
 }
 
 export type RoundType = 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
@@ -1587,5 +1594,75 @@ export interface PlayerAvatarsTable {
 export interface FriendshipsTable {
     player_id: string;
     friend_player_id: string;
+    created_at: Generated<string>;
+}
+
+// --- Phase 6 Slice 1 — Series + teams (migration 065). ---
+//
+// A series holds rounds DIRECTLY (`series_rounds`, the structural mirror of
+// `friendly_rounds` / `competition_rounds`); `competitions.series_id` joins the
+// same fold later by add-column migration (FK-target rule).
+
+export interface SeriesTable {
+    id: string;
+    name: string;
+    /** Read link — never a write credential. */
+    share_token: string;
+    owner_player_id: string;
+    created_at: Generated<string>;
+}
+
+export interface TeamsTable {
+    id: string;
+    name: string;
+    /** Colour TOKEN name; each client maps it to its own palette. */
+    colour: string;
+    created_at: Generated<string>;
+}
+
+export interface SeriesTeamsTable {
+    series_id: string;
+    team_id: string;
+    ordinal: number;
+}
+
+/** Strict player XOR guest (CHECK) — the `competition_participants` variant. */
+export interface TeamMembersTable {
+    id: string;
+    team_id: string;
+    player_id: string | null;
+    guest_player_id: string | null;
+    display_name_snapshot: string;
+    created_at: Generated<string>;
+}
+
+export interface SeriesRoundsTable {
+    id: string;
+    series_id: string;
+    /** UNIQUE — a round counts toward at most one series. */
+    round_id: string;
+    ordinal: number;
+    label: string;
+    created_at: Generated<string>;
+}
+
+export interface SeriesRoundBallTeamsTable {
+    series_round_id: string;
+    /** No FK by design — see migration 065. */
+    ball_id: string;
+    team_id: string;
+}
+
+export interface SeriesPointSourcesTable {
+    id: string;
+    series_id: string;
+    /** NULL = a round-less manual entry (then `slot_def_id` is NULL too). */
+    series_round_id: string | null;
+    slot_def_id: string | null;
+    /** OPEN namespace owned by the TeamPointsRule registry. */
+    rule_id: string;
+    config_json: string;
+    label: string;
+    ordinal: number;
     created_at: Generated<string>;
 }

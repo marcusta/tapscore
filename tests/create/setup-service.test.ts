@@ -63,6 +63,10 @@ function descriptor(
 
 const catalogDescriptors: FormatDescriptor[] = [
     descriptor('stableford_individual', { producerCount: { min: 1, max: 1 }, ballMode: 'own' }),
+    {
+        ...descriptor('stroke_play_individual', { producerCount: { min: 1, max: 1 }, ballMode: 'own' }),
+        scoringMode: 'stroke_play',
+    },
     descriptor('scramble', { producerCount: { min: 2, max: 4 }, ballMode: 'team' }),
     descriptor('better_ball', {
         producerCount: { min: 1, max: 1 },
@@ -489,6 +493,53 @@ test('side format scores only multi-ball sides — never individual players', as
         { kind: 'team', teamId: String(sideB) },
     ]);
     expect(lastDraft.teams.map((t: any) => t.kind)).toEqual(['multi_ball', 'multi_ball']);
+});
+
+test('scores counted per team: a ball format scoring sides emits best_n_sum above 1, and nothing at 1', async () => {
+    const svc = makeService();
+    const keys = ['Anna', 'Bert', 'Cleo', 'Dan', 'Eve', 'Finn'].map((n) => addPlayer(svc, n, '10'));
+    const slot = addSlot(svc, 'stroke_play_individual');
+    const slotForm = () => svc.formatSlots.get().find((f) => f.key === slot)!;
+
+    // No side scored yet: the control has nothing to offer.
+    expect(svc.slotSideCountOptions(slotForm())).toEqual([]);
+
+    const sides = [keys.slice(0, 3), keys.slice(3)].map((members) => {
+        svc.addTeam();
+        const key = svc.teams.get().at(-1)!.key;
+        svc.setTeamKind(key, 'multi_ball');
+        for (const m of members) svc.setTeamMember(key, m, true);
+        svc.setSubjectTeam(slot, key, true);
+        return key;
+    });
+    expect(sides).toHaveLength(2);
+    expect(svc.slotSideCountOptions(slotForm())).toEqual([1, 2, 3]);
+
+    await svc.submit();
+    expect(lastDraft.formats[0].sideAggregation).toBeUndefined();
+
+    svc.setSlotSideCount(slot, 2);
+    await svc.submit();
+    expect(lastDraft.formats[0].sideAggregation).toEqual({ type: 'best_n_sum', count: 2, basis: 'net' });
+
+    // A side that shrinks below the stored count clamps it, never over-asks.
+    svc.setSlotSideCount(slot, 3);
+    svc.setTeamMember(sides[0]!, keys[2]!, false);
+    expect(svc.slotSideCountOptions(slotForm())).toEqual([1, 2]);
+    expect(svc.slotSideCount(slotForm())).toBe(2);
+
+    // A points format cannot rank a sum of strokes: no control, nothing emitted.
+    const pts = addSlot(svc, 'stableford_individual');
+    svc.setSubjectTeam(pts, sides[0]!, true);
+    svc.setSlotSideCount(pts, 2);
+    expect(svc.slotSideCountOptions(svc.formatSlots.get().find((f) => f.key === pts)!)).toEqual([]);
+    await svc.submit();
+    expect(lastDraft.formats[1].sideAggregation).toBeUndefined();
+
+    // A side format aggregates its own way: no control.
+    const bb = addSlot(svc, 'better_ball');
+    svc.setSubjectTeam(bb, sides[0]!, true);
+    expect(svc.slotSideCountOptions(svc.formatSlots.get().find((f) => f.key === bb)!)).toEqual([]);
 });
 
 test('one-level nesting: a side may nest a LIVE single-ball team; single-ball teams cannot nest', async () => {

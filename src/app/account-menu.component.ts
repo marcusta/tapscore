@@ -14,6 +14,7 @@ import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { signOutSequence } from '../auth/sign-out';
 import { avatarBadgeBindings, avatarBadgeCss, avatarBadgeMarkup } from './avatar-badge';
 import { manageUrl } from './manage-url';
+import { features } from '../features';
 import {
     accountControl,
     accountMenuKinds,
@@ -49,6 +50,7 @@ const tpl = template(`
             </div>
             <div class="acct__actions" role="group" aria-label="Account">
                 <button bind="profile" class="acct__row" type="button">Profile</button>
+                <button bind="teamEvents" class="acct__row" type="button">Team events</button>
                 <a bind="courseSetup" class="acct__row">Course setup</a>
                 <button bind="admin" class="acct__row" type="button">Admin</button>
                 <button bind="signout" class="acct__row acct__row--quiet" type="button">Sign out</button>
@@ -196,6 +198,7 @@ export class AccountMenuComponent extends Component {
         // A failed roles fetch leaves the list empty → false → row hidden.
         isSuperAdmin: this.admins.isSuperAdmin(),
         canManageCourses: this.admins.canManageCourses(),
+        teamEvents: features.series,
     }));
 
     private signOutAllOpen = new Signal(false);
@@ -284,6 +287,13 @@ export class AccountMenuComponent extends Component {
                 onclick: () => {
                     this.open.set(false);
                     this.router.navigate('/profile');
+                },
+            },
+            teamEvents: {
+                className: () => this.rowClass('team-events'),
+                onclick: () => {
+                    this.open.set(false);
+                    this.router.navigate('/series');
                 },
             },
             // The one row that LEAVES this app. Course setup is now the Manage

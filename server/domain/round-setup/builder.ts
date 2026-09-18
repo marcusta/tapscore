@@ -575,6 +575,21 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         // the same slot: the shared own-ball strategy mints one ball per
         // producer, and one ball can't simultaneously stand alone and be
         // aggregated into a side.
+        // A sum of several members' strokes is a stroke total. A points or
+        // match format would read it as one ball's score on the hole, which
+        // means nothing, so only a stroke play format may take it.
+        if (
+            sides.length > 0 &&
+            sel.sideAggregation?.type === 'best_n_sum' &&
+            sel.sideAggregation.count > 1 &&
+            plugin.descriptor.scoringMode !== 'stroke_play'
+        ) {
+            fmtDiag({
+                code: 'side_sum_needs_stroke_play_format',
+                message: `format '${sel.formatId}' cannot count ${sel.sideAggregation.count} scores per team: only a stroke play format sums several scores on a hole`,
+                path: `${fmtPath}.sideAggregation`,
+            });
+        }
         if (sides.length > 0) {
             const inSides = new Set(sides.flatMap((s) => s.producerDefIds));
             for (const pid of individuals) {
@@ -634,7 +649,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             // ADR-0004 — sides become virtual subjects: the grouping names the
             // member balls; the marker tells materialisation to aggregate.
             ...(sides.length > 0
-                ? { teamGrouping: { teams: sides }, sideAggregation: { type: 'best_net' as const } }
+                ? { teamGrouping: { teams: sides }, sideAggregation: sel.sideAggregation ?? { type: 'best_net' as const } }
                 : {}),
             ...(sel.formatConfig !== undefined ? { formatConfig: sel.formatConfig } : {}),
         };

@@ -215,11 +215,20 @@ const SlotTeamGrouping = Type.Object({
  * The engine synthesizes the side's per-hole value stream at materialisation
  * (best net among the side's balls for `best_net`) and presents it to the
  * UNCHANGED format as an ordinary ball. Stored as data so future variants
- * ('sum', 'worst') are new values, not new formats. Only `best_net` exists.
+ * ('worst') are new values, not new formats.
+ *
+ *   - `best_net`: the lowest net among the side's balls.
+ *   - `best_n_sum`: the SUM of the `count` lowest values among the side's
+ *     balls, on gross or net (`basis`). "Count the two best of three."
  */
-export const SlotSideAggregation = Type.Object({
-    type: Type.Literal('best_net'),
-});
+export const SlotSideAggregation = Type.Union([
+    Type.Object({ type: Type.Literal('best_net') }),
+    Type.Object({
+        type: Type.Literal('best_n_sum'),
+        count: Type.Integer({ minimum: 1, maximum: 8 }),
+        basis: Type.Union([Type.Literal('gross'), Type.Literal('net')]),
+    }),
+]);
 export type SlotSideAggregation = Static<typeof SlotSideAggregation>;
 
 // --- Route itinerary, SI provenance, handicap policy (Slice 3b) ------------

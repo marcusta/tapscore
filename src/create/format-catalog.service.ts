@@ -284,6 +284,18 @@ export class FormatCatalogService {
         if (this.classify(d).kind === 'team_grouping') return false;
         return (d.requirements.scoreEntry?.metadata?.length ?? 0) === 0;
     }
+
+    /**
+     * May a team of separate balls count MORE than one score per hole here?
+     * The engine sums the members' strokes, which only a stroke play format
+     * can rank. The server builder refuses the rest with
+     * `side_sum_needs_stroke_play_format`; this keeps the control off them.
+     */
+    acceptsSideSum(descriptorOrId: FormatDescriptor | string): boolean {
+        const d = typeof descriptorOrId === 'string' ? this.byId(descriptorOrId) : descriptorOrId;
+        if (!d || !this.acceptsSideSubjects(d)) return false;
+        return d.scoringMode === 'stroke_play';
+    }
 }
 
 export type { FormationDescriptor } from '../api/setup.gen';

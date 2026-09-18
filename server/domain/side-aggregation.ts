@@ -4,7 +4,7 @@
 // be a SUBJECT for any ball-ranking format. This module is the single place
 // that turns a side into an ordinary scoring subject: it derives, per play
 // hole, the side's aggregated value (best net among the side's balls for
-// `best_net`) and re-encodes it as a synthesized score-event stream on a
+// `best_net`, the sum of the N lowest for `best_n_sum`) and re-encodes it as a synthesized score-event stream on a
 // virtual ball, so the UNCHANGED format's `score()` sees N ordinary subjects.
 //
 // Invariants (the whole point of the seam):
@@ -13,7 +13,7 @@
 //   - Score entry is untouched — members enter their own balls; the virtual
 //     stream is DERIVED here at materialisation, never entered or persisted.
 //   - The virtual subject's PH is 0 and its per-hole "gross" is the
-//     aggregated best NET, so net == value flows through unchanged format
+//     aggregated value (already net where the basis is net), so net == value flows through unchanged format
 //     math (each member's net already used their own PH/SI strokes-given).
 //   - Virtual ids are content-addressed on (slot_def_id, team label) — both
 //     stable across recompiles — so corrections keep the subject identity.
@@ -80,40 +80,47 @@ export function virtualSideBallId(slotDefId: string, teamLabel: string): string 
 }
 
 /**
- * Best (lowest) net among the side's balls for one occurrence.
+ * The side's value for one occurrence: the sum of the `count` lowest member
+ * values. `best_net` is `count` 1 on net.
  *
  *   - a member with no event on the hole contributes nothing;
- *   - DNP (null) and pickup (0) count as no-score for best-of;
+ *   - DNP (null) and pickup (0) count as no-score;
  *   - `undefined` ⇒ NO member has any event (hole untouched → no event
- *     synthesized); `null` ⇒ some member engaged but none produced a net
- *     (hole engaged-but-undecided → a null-strokes event is synthesized).
+ *     synthesized); `null` ⇒ some member engaged but fewer than `count`
+ *     produced a value (hole engaged-but-undecided → a null-strokes event is
+ *     synthesized). A short side never scores a partial sum: two counting
+ *     balls against one would read as a win.
  */
-function bestNetForHole(
+function bestSumForHole(
     members: { scores: Map<string, number | null>; given: Map<string, number> }[],
     playHoleId: string,
+    count: number,
+    basis: 'gross' | 'net',
 ): number | null | undefined {
     let engaged = false;
-    let best: number | null = null;
+    const values: number[] = [];
     for (const m of members) {
         if (!m.scores.has(playHoleId)) continue;
         engaged = true;
         const strokes = m.scores.get(playHoleId) ?? null;
         if (strokes === null || strokes === 0) continue; // DNP / pickup: no-score
-        const net = strokes - (m.given.get(playHoleId) ?? 0);
-        if (best === null || net < best) best = net;
+        values.push(basis === 'net' ? strokes - (m.given.get(playHoleId) ?? 0) : strokes);
     }
     if (!engaged) return undefined;
-    return best;
+    if (values.length < count) return null;
+    values.sort((a, b) => a - b);
+    let sum = 0;
+    for (let i = 0; i < count; i++) sum += values[i]!;
+    return sum;
 }
 
 export function aggregateSlotSubjects(
     input: AggregateSlotSubjectsInput,
 ): AggregateSlotSubjectsOutput {
-    if (input.aggregation.type !== 'best_net') {
-        throw new Error(
-            `side aggregation '${(input.aggregation as { type: string }).type}' is not implemented (only best_net)`,
-        );
-    }
+    const { count, basis } =
+        input.aggregation.type === 'best_n_sum'
+            ? input.aggregation
+            : { count: 1, basis: 'net' as const };
 
     const ballById = new Map(input.slotBalls.map((b) => [b.ballId, b] as const));
     const sideByMemberBall = new Map<string, SlotTeamGrouping>();
@@ -146,16 +153,16 @@ export function aggregateSlotSubjects(
         });
 
         for (const occ of input.roundContext.playHoles) {
-            const best = bestNetForHole(members, occ.playHoleId);
+            const best = bestSumForHole(members, occ.playHoleId, count, basis);
             if (best === undefined) continue; // hole untouched by the side
             syntheticEvents.push({
                 kind: 'score',
                 roundId: input.events.find((e) => e.kind === 'score')?.roundId ?? '',
                 ballId: vid,
                 playHoleId: occ.playHoleId,
-                // best === null ⇒ engaged-but-undecided (all members DNP /
-                // pickup) → null (no result that hole). Otherwise the best
-                // net, floored at 1 (see the value-encoding note above).
+                // best === null ⇒ engaged-but-undecided (too few members with
+                // a value) → null (no result that hole). Otherwise the side's
+                // value, floored at 1 (see the value-encoding note above).
                 strokes: best === null ? null : Math.max(1, best),
                 clientEventId: `virtual:${vid}:${occ.playHoleId}`,
                 recordedBy: '',

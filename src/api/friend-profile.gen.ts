@@ -34,7 +34,7 @@ export interface FriendProfileRoundEntry {
     name: null | string;
     courseName: null | string;
     date: string;
-    status: 'active' | 'not_started' | 'complete';
+    status: 'not_started' | 'active' | 'complete';
     holeCount: number;
     holesPlayed: number;
     scoreToPar: null | number;

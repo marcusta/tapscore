@@ -40,6 +40,8 @@ import { createSetupApi } from './api/setup.api';
 import { createCompetitionsApi } from './api/competitions.api';
 import { CompetitionAuthz } from './api/competition-authz';
 import { createAdminApi } from './api/admin.api';
+import { createSeriesApi } from './api/series.api';
+import { SeriesAuthz } from './api/series-authz';
 import { registerFriendlyRoundEvents } from './api/friendly-rounds-events';
 import { AdminAuthz } from './api/admin-authz';
 import { CourseManagementAuthz } from './api/course-management-authz';
@@ -48,12 +50,14 @@ import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
 import { registerBuiltInFormats } from './domain/formats';
 import { registerBuiltInAggregationStrategies } from './domain/aggregation';
+import { registerBuiltInTeamPointsRules } from './domain/team-points';
 
 // --- Composition root ---
 
 registerBuiltInBallCreationStrategies();
 registerBuiltInFormats();
 registerBuiltInAggregationStrategies();
+registerBuiltInTeamPointsRules();
 
 const { app, db, bootstrapAuth } = await createApp<Database>(
     path.join(import.meta.dir, 'db/migrations'),
@@ -94,6 +98,7 @@ const {
     competitionLeaderboardService,
     competitionCutService,
     competitionFinalizeService,
+    seriesService,
     roundEventsHub,
 } = services;
 
@@ -181,6 +186,7 @@ mount(
         new CompetitionAuthz(roleService, competitionService),
     ),
 );
+mount(app, '/api', createSeriesApi(seriesService, roleService, new SeriesAuthz(roleService, seriesService)));
 mount(app, '/api', createAdminApi(adminService, roleService, new AdminAuthz(roleService)));
 
 // Streaming has no descriptor shape (Phase 9a) — a raw Hono route, registered

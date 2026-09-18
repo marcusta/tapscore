@@ -20,6 +20,8 @@ import { RoundStatsComponent } from '../stats/round-stats.component';
 import { AdminComponent } from '../admin/admin.component';
 import { CompetitionsComponent } from '../competition/competitions.component';
 import { CompetitionDetailComponent } from '../competition/competition-detail.component';
+import { SeriesListComponent } from '../series/series-list.component';
+import { SeriesBoardComponent } from '../series/series-board.component';
 import { features } from '../features';
 
 // The account surface is app-level, not landing-level: one instance in the
@@ -120,6 +122,14 @@ export class AppComponent extends Component {
                 ? {
                       '/competitions': CompetitionsComponent,
                       '/competition': CompetitionDetailComponent,
+                  }
+                : {}),
+            // Team events. The board is an open read by series share token;
+            // the list and every mutation need a session.
+            ...(features.series
+                ? {
+                      '/series': SeriesListComponent,
+                      '/series-board': SeriesBoardComponent,
                   }
                 : {}),
         }, LandingComponent);

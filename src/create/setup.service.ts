@@ -42,6 +42,13 @@ export interface FormatSlotForm {
      * parsed lazily). 100 = full handicap. For separate-balls / individual play
      * this is THE allowance; a combined ball already carries its merge %s. */
     allowancePct: string;
+    /**
+     * How many of a team's scores count on each hole, when this format scores a
+     * team of separate balls. Absent or 1 ⇒ the team's best score (the server
+     * default). Above 1 the draft carries `best_n_sum`. Ignored when the slot
+     * scores no such team.
+     */
+    sideCount?: number;
     /** Player `key` → in this format's subjects? Missing key ⇒ included (so a
      * fresh format scores everyone). The set of balls this format ranks. */
     subjectPlayers: Record<number, boolean>;
@@ -950,6 +957,38 @@ export class SetupService {
         this.patchFormatSlot(key, { allowancePct: pct });
     }
 
+    setSlotSideCount(key: number, count: number): void {
+        this.patchFormatSlot(key, { sideCount: count });
+    }
+
+    /**
+     * The "scores counted per team" choices for a slot: 1 up to the smallest
+     * scored team of separate balls, capped at 4 so the control stays chips.
+     * Empty when the slot scores no such team, which hides the control.
+     */
+    slotSideCountOptions(slot: FormatSlotForm): number[] {
+        if (!this.catalog.acceptsSideSum(slot.formatId)) return [];
+        const keys = this.slotTeamSubjectKeys(slot);
+        let smallest = Infinity;
+        for (const team of this.teams.get()) {
+            if (!keys.has(team.key) || team.kind !== 'multi_ball') continue;
+            // A nested shared-ball team is one ball, so one score.
+            const balls =
+                Object.keys(team.pctByPlayer).length +
+                Object.values(team.memberTeams).filter(Boolean).length;
+            smallest = Math.min(smallest, balls);
+        }
+        if (!Number.isFinite(smallest) || smallest < 2) return [];
+        return Array.from({ length: Math.min(smallest, 4) }, (_, i) => i + 1);
+    }
+
+    /** The slot's count, clamped to what its teams can supply. */
+    slotSideCount(slot: FormatSlotForm): number {
+        const options = this.slotSideCountOptions(slot);
+        if (options.length === 0) return 1;
+        return Math.min(Math.max(slot.sideCount ?? 1, 1), options[options.length - 1]!);
+    }
+
     /**
      * The seed values a slot of `formatId` starts from — the STRATEGY's own
      * defaults, carried on the descriptor (`defaults.formatConfig`, derived
@@ -1614,6 +1653,7 @@ export class SetupService {
             key: slotBefore?.key ?? this.nextSlotKey++,
             formatId: pick.formatId,
             allowancePct: slotBefore?.allowancePct ?? '100',
+            ...(slotBefore?.sideCount !== undefined ? { sideCount: slotBefore.sideCount } : {}),
             subjectPlayers,
             subjectTeams,
             config: slotBefore?.config ?? this.defaultConfigFor(pick.formatId),
@@ -3025,10 +3065,15 @@ export class SetupService {
             for (const team of this.teams.get()) {
                 if (teamKeys.has(team.key)) subjects.push({ kind: 'team', teamId: String(team.key) });
             }
+            const sideCount = this.slotSideCount(slot);
             return {
                 formatId: slot.formatId,
                 allowanceConfig: { type: 'flat', pct: this.parsePct(slot.allowancePct) },
                 subjects,
+                // Net at a 0% allowance is gross, so one basis covers both.
+                ...(sideCount > 1
+                    ? { sideAggregation: { type: 'best_n_sum' as const, count: sideCount, basis: 'net' as const } }
+                    : {}),
                 // Whatever knobs this format declared, verbatim — explicit even
                 // at their defaults, so the draft states the rules it was
                 // created under. A format with no knobs emits no `formatConfig`

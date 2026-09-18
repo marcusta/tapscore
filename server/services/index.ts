@@ -35,6 +35,7 @@ import { CompetitionRoundService } from './competition-round.service';
 import { CompetitionLeaderboardService } from './competition-leaderboard.service';
 import { CompetitionCutService } from './competition-cut.service';
 import { CompetitionFinalizeService } from './competition-finalize.service';
+import { SeriesService } from './series.service';
 import type { CompilerTeeContext, Gender } from '../domain/compiler/types';
 
 /**
@@ -244,6 +245,16 @@ export function createServices(db: Kysely<Database>) {
         competitionLeaderboardService,
         competitionRoundService,
     );
+    // Team events: teams + attached rounds folded into team points through the
+    // TeamPointsRule registry (Phase 6). Reads the same scored slots the round
+    // leaderboard renders from.
+    const seriesService = new SeriesService(
+        db,
+        playerService,
+        guestPlayerService,
+        leaderboardService,
+    );
+
     return {
         db,
         roundEventsHub,
@@ -281,5 +292,6 @@ export function createServices(db: Kysely<Database>) {
         competitionLeaderboardService,
         competitionCutService,
         competitionFinalizeService,
+        seriesService,
     };
 }

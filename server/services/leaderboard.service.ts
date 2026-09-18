@@ -15,7 +15,13 @@ import {
     type RoundDefinition,
     type SlotSideAggregation,
 } from '../domain/round-definition';
-import type { FormatAction, RulingEvent, StrategyEvent } from '../domain/strategies/types';
+import type {
+    FormatAction,
+    RulingEvent,
+    StrategyEvent,
+    StrategyResult,
+} from '../domain/strategies/types';
+import type { VirtualSideSubject } from '../domain/side-aggregation';
 import { applyRulingsToSlot, rulingEventsOf } from '../domain/strategies/rulings';
 import type { CourseHole } from '../domain/round-holes';
 import type { RulingKind, RulingTarget } from '../db/schema';
@@ -40,6 +46,21 @@ import type { RulingKind, RulingTarget } from '../db/schema';
  *   b) a ball exists under the round but lands in zero slots;
  *   c) a compiled slot's `slot_def_id` is absent from the round definition.
  */
+/** One slot's raw engine output — see `LeaderboardService.scoredSlotsForRound`. */
+export interface ScoredSlot {
+    slotDefId: string;
+    slotIndex: number;
+    formatLabel: string;
+    /** `plugin.score()` output with rulings applied. */
+    result: StrategyResult;
+    /** ADR-0004 virtual side subjects of this slot (empty when none). */
+    virtualSubjects: VirtualSideSubject[];
+    /** Ball id (real or virtual) → display label. */
+    ballLabels: Record<string, string>;
+    /** The slot's REAL (entered) ball ids, side members included. */
+    realBallIds: string[];
+}
+
 export class LeaderboardService {
     constructor(
         private db: Kysely<Database>,
@@ -248,6 +269,70 @@ export class LeaderboardService {
     }
 
     /**
+     * Materialise + score every slot ONCE: `plugin.score()` with rulings
+     * applied. The single place a round's `StrategyResult`s are produced —
+     * `resultForRound` presents them, and the series team-points fold
+     * (`scoredSlotsForRound`) consumes them raw, so the two can never disagree
+     * about who won.
+     */
+    private async scoreRound(roundId: string) {
+        const { input, round } = await this.buildInput(roundId);
+        const materialized = materializeRound(input);
+        const rulings = rulingEventsOf(materialized.events);
+        const scored = materialized.slots.map((slot) => {
+            const plugin = findFormatPlugin(slot.formatId);
+            const raw = plugin.score({
+                roundContext: materialized.roundContext,
+                slotBalls: slot.slotBalls,
+                slotTeamGroupings: slot.slotTeamGroupings,
+                events: materialized.events,
+                formatConfig: slot.formatConfig,
+                formatActions: slot.formatActions,
+            });
+            // Competitive rulings are a generic scoring-layer adjustment on the
+            // structured result — never a format-id branch, never a re-derivation.
+            const { result } = applyRulingsToSlot(raw, rulings, slot.slotDefId);
+            return { slot, result };
+        });
+        return { input, round, materialized, scored };
+    }
+
+    /**
+     * Per-slot `StrategyResult` for consumers that fold the engine's own output
+     * (REWRITE_DOMAIN_SPEC.md §19 — TeamPointsRule takes "exactly what
+     * plugin.score() emitted"). Format-neutral: the slot's SHAPE is described
+     * (`hasMatches`), never its format id.
+     */
+    async scoredSlotsForRound(roundId: string): Promise<ScoredSlot[]> {
+        const { input, scored } = await this.scoreRound(roundId);
+        const realLabel = new Map(input.balls.map((b) => [b.id, b.label] as const));
+        return scored.map(({ slot, result }) => {
+            const virtualSubjects = slot.virtualSubjects ?? [];
+            const virtualIds = new Set(virtualSubjects.map((v) => v.ballId));
+            // A side's member balls are no longer in `slot.slotBalls` (the
+            // virtual subject took their place), so real ids = passthrough
+            // balls + every side's members, in slot order.
+            const realBallIds = slot.slotBalls.flatMap((b) =>
+                virtualIds.has(b.ballId)
+                    ? virtualSubjects.find((v) => v.ballId === b.ballId)!.memberBallIds
+                    : [b.ballId],
+            );
+            const ballLabels: Record<string, string> = {};
+            for (const b of slot.slotBalls) ballLabels[b.ballId] = b.label ?? '';
+            for (const id of realBallIds) ballLabels[id] = realLabel.get(id) ?? ballLabels[id] ?? '';
+            return {
+                slotDefId: slot.slotDefId,
+                slotIndex: slot.slotIndex,
+                formatLabel: findFormatPlugin(slot.formatId).descriptor.label,
+                result,
+                virtualSubjects,
+                ballLabels,
+                realBallIds,
+            };
+        });
+    }
+
+    /**
      * Canonical per-slot result for generic consumers (static render, and the
      * mobile client in 2.6e). Each slot is scored through its registered
      * plugin and reshaped — by that plugin's own `renderResult` presenter —
@@ -256,8 +341,7 @@ export class LeaderboardService {
      * format-id branching downstream.
      */
     async resultForRound(roundId: string): Promise<RoundResult> {
-        const { input, round } = await this.buildInput(roundId);
-        const materialized = materializeRound(input);
+        const { round, materialized, scored } = await this.scoreRound(roundId);
         const rc = materialized.roundContext;
 
         // Scorecard columns = the explicit itinerary occurrences in canonical
@@ -278,21 +362,8 @@ export class LeaderboardService {
             ),
         );
 
-        const rulings = rulingEventsOf(materialized.events);
-
-        const slots = materialized.slots.map((slot) => {
+        const slots = scored.map(({ slot, result }) => {
             const plugin = findFormatPlugin(slot.formatId);
-            const scored = plugin.score({
-                roundContext: rc,
-                slotBalls: slot.slotBalls,
-                slotTeamGroupings: slot.slotTeamGroupings,
-                events: materialized.events,
-                formatConfig: slot.formatConfig,
-                formatActions: slot.formatActions,
-            });
-            // Competitive rulings are a generic scoring-layer adjustment on the
-            // structured result — never a format-id branch, never a re-derivation.
-            const { result } = applyRulingsToSlot(scored, rulings, slot.slotDefId);
             const allowanceLabel = allowanceLabelBySlot.get(slot.slotIndex) ?? '—';
             // Per-ball effective SI for single-producer (own-ball) cards: shows
             // each ball the SI its OWN tee allocates against, so the displayed SI

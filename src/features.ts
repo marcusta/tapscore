@@ -18,4 +18,7 @@ export const features = {
     // Competitions ("Comps" tab + /competitions, /competition routes). Hidden
     // in prod until the competition flow is finished.
     competitions: flag(env.VITE_FEATURE_COMPETITIONS, !!env.DEV),
+    // Team events (/series, /series-board). On everywhere: the flag exists so a
+    // build can drop the surface without a revert (VITE_FEATURE_SERIES=0).
+    series: flag(env.VITE_FEATURE_SERIES, true),
 };

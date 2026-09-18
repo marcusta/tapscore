@@ -15,6 +15,7 @@ export const MANUAL_FORMAT_SEEDS = [
     'taliban-round',
     'kopenhamnare-round',
     'kopenhamnare-sides-round',
+    'best-two-of-three-round',
     'umbrella-round',
     'umbrella-individual-round',
     'multi-format-3p-round',

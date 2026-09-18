@@ -67,7 +67,7 @@ export interface GridRow {
     subjectBallId?: string;
     kind: 'par' | 'si' | 'given' | 'gross' | 'net' | 'points' | 'running' | 'status' | 'category' | 'free';
     cells: GridCell[];
-    aggregate: 'sum' | 'last' | 'none';
+    aggregate: 'none' | 'sum' | 'last';
     emphasis?: boolean;
     team?: 'a' | 'b';
 }

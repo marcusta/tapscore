@@ -5,6 +5,7 @@
 export type AccountMenuRowKind =
     | 'identity'
     | 'profile'
+    | 'team-events'
     | 'course-setup'
     | 'admin'
     | 'signout'
@@ -17,7 +18,7 @@ export interface AccountMenuIdentity {
 }
 
 export interface AccountMenuAction {
-    kind: 'profile' | 'course-setup' | 'admin' | 'signout' | 'signout-all';
+    kind: 'profile' | 'team-events' | 'course-setup' | 'admin' | 'signout' | 'signout-all';
     label: string;
 }
 
@@ -37,6 +38,8 @@ export interface AccountMenuState {
     isSuperAdmin: boolean;
     /** True for global course_admin or super_admin. */
     canManageCourses?: boolean;
+    /** The `features.series` build flag. Off drops the row with the routes. */
+    teamEvents?: boolean;
 }
 
 /**
@@ -53,6 +56,7 @@ export function accountMenuRows(state: AccountMenuState): AccountMenuRow[] {
         },
         { kind: 'profile', label: 'Profile' },
     ];
+    if (state.teamEvents) rows.push({ kind: 'team-events', label: 'Team events' });
     if (state.canManageCourses) rows.push({ kind: 'course-setup', label: 'Course setup' });
     if (state.isSuperAdmin) rows.push({ kind: 'admin', label: 'Admin' });
     rows.push({ kind: 'signout', label: 'Sign out' });
